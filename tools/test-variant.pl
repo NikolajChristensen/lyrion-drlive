@@ -1,24 +1,24 @@
 #!/usr/bin/env perl
-# Unit test for the playlist helpers in Plugins::DRLive::ProtocolHandler,
-# loaded in isolation (no Lyrion runtime).
+# Unit test for Plugins::DRLive::HLS, the shared HLS master-playlist parser.
+#
+# Loaded directly - no Slim::* stubbing needed, because that module is
+# deliberately dependency-free (see its own header comment).
 use strict;
 use warnings;
+use FindBin qw($Bin);
 
-# Pull just the helper subs out of the module.
-my $src = do {
-	local $/;
-	open my $fh, '<', 'Plugins/DRLive/ProtocolHandler.pm' or die $!;
-	<$fh>;
-};
-my ($helpers) = $src =~ /(sub _lowestVariant\b.*)\n1;/s;
-die "could not extract helpers\n" unless $helpers;
-eval "package T; $helpers 1;" or die "compile: $@";
+require "$Bin/../Plugins/DRLive/HLS.pm";
 
 my $ok = 1;
 sub is {
 	my ($got, $exp, $name) = @_;
 	if (defined $got && $got eq $exp) { print "ok   - $name\n" }
 	else { $ok = 0; print "FAIL - $name\n     got: ", $got // '(undef)', "\n     exp: $exp\n" }
+}
+sub is_undef {
+	my ($got, $name) = @_;
+	if (!defined $got) { print "ok   - $name\n" }
+	else { $ok = 0; print "FAIL - $name\n     got: $got\n     exp: (undef)\n" }
 }
 
 my $base = 'https://cdn.example.net/hls/live/123/chan/master.m3u8';
@@ -34,9 +34,9 @@ my $master = <<'M3U8';
 3.m3u8
 M3U8
 
-is(T::_lowestVariant($master, $base),
+is(Plugins::DRLive::HLS::lowest_variant($master, $base),
    'https://cdn.example.net/hls/live/123/chan/1.m3u8',
-   'picks lowest BANDWIDTH, resolves relative URI');
+   'lowest_variant: picks lowest BANDWIDTH, resolves relative URI');
 
 my $absMaster = <<'M3U8';
 #EXTM3U
@@ -45,48 +45,65 @@ https://other.cdn.net/a/low.m3u8
 #EXT-X-STREAM-INF:BANDWIDTH=5000
 https://other.cdn.net/a/high.m3u8
 M3U8
-is(T::_lowestVariant($absMaster, $base),
+is(Plugins::DRLive::HLS::lowest_variant($absMaster, $base),
    'https://other.cdn.net/a/low.m3u8',
-   'keeps absolute variant URI');
+   'lowest_variant: keeps absolute variant URI');
 
 my $rooted = <<'M3U8';
 #EXTM3U
 #EXT-X-STREAM-INF:BANDWIDTH=100
 /abs/path/v1.m3u8
 M3U8
-is(T::_lowestVariant($rooted, $base),
+is(Plugins::DRLive::HLS::lowest_variant($rooted, $base),
    'https://cdn.example.net/abs/path/v1.m3u8',
-   'resolves root-relative URI against scheme+host');
+   'lowest_variant: resolves root-relative URI against scheme+host');
 
-is(T::_lowestVariant("#EXTM3U\n#EXT-X-ENDLIST\n", $base), undef,
-   'returns undef when there are no variants')
-	if 0; # is() can't assert undef==eq; check manually
-{
-	my $r = T::_lowestVariant("#EXTM3U\n", $base);
-	if (!defined $r) { print "ok   - undef when no variants\n" }
-	else { $ok = 0; print "FAIL - undef when no variants (got $r)\n" }
-}
+is_undef(Plugins::DRLive::HLS::lowest_variant("#EXTM3U\n", $base),
+   'lowest_variant: undef when there are no variants');
 
-is(T::_absUrl('4.m3u8', 'https://h.net/a/b/master.m3u8?token=x'),
+# --- audio_variant -----------------------------------------------------------
+
+my $vodMaster = <<'M3U8';
+#EXTM3U
+#EXT-X-VERSION:6
+#EXT-X-INDEPENDENT-SEGMENTS
+#EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="AUDIO",NAME="Danish",LANGUAGE="da",AUTOSELECT=YES,DEFAULT=YES,CHANNELS="2",URI="audio_192kbps.m3u8"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="Dansk",URI="../subtitles/playlist.m3u8"
+#EXT-X-STREAM-INF:BANDWIDTH=771054,CODECS="avc1.42C01E,mp4a.40.2",AUDIO="AUDIO"
+video_500.m3u8
+M3U8
+
+is(Plugins::DRLive::HLS::audio_variant($vodMaster, $base),
+   'https://cdn.example.net/hls/live/123/chan/audio_192kbps.m3u8',
+   'audio_variant: finds the AUDIO group URI, ignores SUBTITLES');
+
+is_undef(Plugins::DRLive::HLS::audio_variant($master, $base),
+   'audio_variant: undef when the manifest has no AUDIO group (the live-channel case)');
+
+is_undef(Plugins::DRLive::HLS::audio_variant(undef, $base),
+   'audio_variant: undef on empty content');
+
+# --- abs_url -------------------------------------------------------------
+
+is(Plugins::DRLive::HLS::abs_url('4.m3u8', 'https://h.net/a/b/master.m3u8?token=x'),
    'https://h.net/a/b/4.m3u8',
-   '_absUrl strips query and last segment');
+   'abs_url: strips query and last segment');
 
-# Regression: a "/" inside the query string must not be taken for the last
-# path separator when deriving the base directory.
-is(T::_absUrl('4.m3u8', 'https://h.net/a/b/master.m3u8?p=x/y&q=1'),
+# A "/" inside the query string must not be taken for the last path separator.
+is(Plugins::DRLive::HLS::abs_url('4.m3u8', 'https://h.net/a/b/master.m3u8?p=x/y&q=1'),
    'https://h.net/a/b/4.m3u8',
-   '_absUrl ignores a slash inside the query string');
+   'abs_url: ignores a slash inside the query string');
 
-is(T::_absUrl('4.m3u8', 'https://h.net/a/b/master.m3u8#frag/ment'),
+is(Plugins::DRLive::HLS::abs_url('4.m3u8', 'https://h.net/a/b/master.m3u8#frag/ment'),
    'https://h.net/a/b/4.m3u8',
-   '_absUrl ignores a slash inside the fragment');
+   'abs_url: ignores a slash inside the fragment');
 
-is(T::_absUrl('/abs/v.m3u8', 'https://h.net/a/b/master.m3u8?p=x/y'),
+is(Plugins::DRLive::HLS::abs_url('/abs/v.m3u8', 'https://h.net/a/b/master.m3u8?p=x/y'),
    'https://h.net/abs/v.m3u8',
-   '_absUrl resolves root-relative against scheme+host, query ignored');
+   'abs_url: resolves root-relative against scheme+host, query ignored');
 
-is(T::_absUrl('  4.m3u8  ', 'https://h.net/a/b/master.m3u8'),
+is(Plugins::DRLive::HLS::abs_url('  4.m3u8  ', 'https://h.net/a/b/master.m3u8'),
    'https://h.net/a/b/4.m3u8',
-   '_absUrl trims surrounding whitespace');
+   'abs_url: trims surrounding whitespace');
 
 exit($ok ? 0 : 1);

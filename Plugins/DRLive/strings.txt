@@ -3,12 +3,16 @@ PLUGIN_DRLIVE
 	DA	DR Live
 
 PLUGIN_DRLIVE_DESC
-	EN	Listen to the audio of DR's live TV channels (DR1, DR2, DR Ramasjang) on your players. Stream URLs are resolved from DR's own catalogue, transcoded to FLAC with ffmpeg.
-	DA	Lyt til lyden fra DR's direkte tv-kanaler (DR1, DR2, DR Ramasjang) på dine afspillere. Stream-URL'er hentes fra DR's eget katalog og konverteres til FLAC med ffmpeg.
+	EN	Listen to the audio of DR's live TV channels (DR1, DR2, DR Ramasjang) and the latest episode of configured on-demand shows (e.g. TVA) on your players. Stream URLs are resolved from DR's own catalogue, transcoded to FLAC with ffmpeg.
+	DA	Lyt til lyden fra DR's direkte tv-kanaler (DR1, DR2, DR Ramasjang) og seneste udsendelse fra konfigurerede on-demand-programmer (fx TVA) på dine afspillere. Stream-URL'er hentes fra DR's eget katalog og konverteres til FLAC med ffmpeg.
 
 PLUGIN_DRLIVE_STREAM_TYPE
 	EN	DR Live (HLS)
 	DA	DR Live (HLS)
+
+PLUGIN_DRLIVE_VOD_STREAM_TYPE
+	EN	DR On Demand (HLS)
+	DA	DR On Demand (HLS)
 
 PLUGIN_DRLIVE_NO_FFMPEG
 	EN	ffmpeg is not installed on this server, so DR Live cannot play. Install ffmpeg and restart the server.

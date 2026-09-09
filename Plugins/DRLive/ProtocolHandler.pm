@@ -17,6 +17,7 @@ use Slim::Utils::Log;
 use Slim::Utils::Strings;
 
 use Plugins::DRLive::API;
+use Plugins::DRLive::HLS;
 
 my $log = logger('plugin.drlive');
 
@@ -69,7 +70,7 @@ sub getNextTrack {
 		Slim::Networking::SimpleAsyncHTTP->new(
 			sub {
 				my $http = shift;
-				my $variant = _lowestVariant($http->content, $master) || $master;
+				my $variant = Plugins::DRLive::HLS::lowest_variant($http->content, $master) || $master;
 				$song->streamUrl($variant);
 				main::INFOLOG && $log->is_info && $log->info("DRLive: channel $id stream -> $variant");
 				$successCb->();
@@ -105,57 +106,6 @@ sub getMetadataFor {
 		bitrate => '',
 		type    => Slim::Utils::Strings::string('PLUGIN_DRLIVE_STREAM_TYPE'),
 	};
-}
-
-# --- helpers -----------------------------------------------------------------
-
-sub _lowestVariant {
-	my ($content, $baseUrl) = @_;
-	return undef unless $content;
-
-	my @lines = split /\r?\n/, $content;
-	my ($bestBw, $bestUri);
-
-	for (my $i = 0; $i < @lines; $i++) {
-		next unless $lines[$i] =~ /^#EXT-X-STREAM-INF:/;
-		my ($bw) = $lines[$i] =~ /[:,]BANDWIDTH=(\d+)/;
-		$bw ||= 0;
-
-		# the URI is the next non-comment, non-blank line
-		my $uri;
-		for (my $j = $i + 1; $j < @lines; $j++) {
-			next if $lines[$j] =~ /^\s*$/ || $lines[$j] =~ /^#/;
-			$uri = $lines[$j];
-			last;
-		}
-		next unless $uri;
-
-		if (!defined $bestBw || $bw < $bestBw) {
-			$bestBw  = $bw;
-			$bestUri = $uri;
-		}
-	}
-
-	return undef unless $bestUri;
-	return _absUrl($bestUri, $baseUrl);
-}
-
-sub _absUrl {
-	my ($ref, $base) = @_;
-	$ref =~ s/^\s+|\s+$//g;
-	return $ref if $ref =~ m{^https?://}i;
-
-	if ($ref =~ m{^/}) {
-		my ($schemeHost) = $base =~ m{^(https?://[^/]+)}i;
-		return ($schemeHost || '') . $ref;
-	}
-
-	# Strip query/fragment first. Doing both in one pass lets a "/" inside a
-	# query string be mistaken for the final path separator, because the regex
-	# engine takes the leftmost match rather than the last slash of the path.
-	(my $path = $base) =~ s/[?#].*\z//s;
-	(my $dir  = $path) =~ s{[^/]*\z}{};
-	return $dir . $ref;
 }
 
 1;

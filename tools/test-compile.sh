@@ -61,7 +61,7 @@ sub decode_json {} sub encode_json {} 1;
 EOF
 
 rc=0
-for m in Plugins::DRLive::API Plugins::DRLive::ProtocolHandler Plugins::DRLive::Plugin; do
+for m in Plugins::DRLive::HLS Plugins::DRLive::API Plugins::DRLive::ProtocolHandler Plugins::DRLive::VODProtocolHandler Plugins::DRLive::Plugin; do
 	printf '%-38s ' "$m"
 	# main::INFOLOG / main::DEBUGLOG are constants LMS defines before plugins load.
 	if perl -I"$STUB" -I. -e "

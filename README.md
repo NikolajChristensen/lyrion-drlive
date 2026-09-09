@@ -1,7 +1,9 @@
 # DRLive — DR live‑TV audio for Lyrion Music Server
 
 Play the **audio** of DR's live TV channels (DR1, DR2, DR Ramasjang) on your
-Squeezebox / Lyrion players, and save them as one‑tap presets.
+Squeezebox / Lyrion players, and save them as one‑tap presets. Also plays the
+latest episode of configured on-demand shows - by default TVA, DR's news
+programme - always resolving to whatever DR most recently published.
 
 The channels are plain HLS (AAC, no DRM). The plugin resolves the current stream
 URL from DR's own catalogue API, picks the lowest‑bandwidth rendition, and lets
@@ -53,6 +55,14 @@ attached to the matching [release](https://github.com/NikolajChristensen/lyrion-
    menu) → **Add to Favourites**. The favourite stores `drlive://20876`, so it
    keeps working even when DR rotates the CDN URL.
 
+The menu also includes `TVA` by default (DR's flagship news programme,
+<https://www.dr.dk/drtv/serie/tva_358871>), which plays whatever episode DR
+most recently published - TVA airs several times a day on no fixed schedule,
+so this always tracks the actual latest, not a specific timeslot. A `drvod://`
+favourite works the same way: it re-resolves to the current latest episode
+every time it's played, rather than replaying whatever was latest when the
+favourite was saved.
+
 ### Adding or changing channels
 
 The channel list is a server preference `plugin.drlive:channels`, an array of
@@ -66,6 +76,21 @@ The channel list is a server preference `plugin.drlive:channels`, an array of
 
 To find another channel's id, open it on <https://www.dr.dk/drtv> and read the
 number at the end of the URL (`/kanal/dr2_20876` → `20876`).
+
+### Adding or changing on-demand shows
+
+Similarly, `plugin.drlive:shows` is an array of the same
+`{ id => '<dr-massive show id>', name => '<label>' }` shape, resolved to each
+show's latest episode rather than a fixed stream. Default:
+
+| id       | show  |
+|----------|-------|
+| `358871` | TVA   |
+
+Find a show's id the same way, from its `/drtv/serie/<name>_<id>` URL. Only
+free, unencrypted (`drm: None`) shows work this way - DR's paid content
+(behind DR Ekstra) does not expose a usable manifest through this anonymous
+API and is out of scope for this plugin.
 
 ## Artwork
 
@@ -89,23 +114,42 @@ Two details make that work, both of which fail silently if you get them wrong:
 ## How it works
 
 ```
-drlive://20876
-   │
-   ├─ ProtocolHandler.getNextTrack
-   │     ├─ API: anonymous token  (isl.dr-massive.com)
-   │     ├─ API: items/20876      → customFields.hlsURL, title, logo
-   │     └─ fetch master.m3u8     → lowest-BANDWIDTH variant playlist
-   │           └─ song->streamUrl(variant)
-   │
-   └─ getFormatForURL → "drlive"
+drlive://20876                              drvod://358871
+   │                                            │
+   ├─ ProtocolHandler.getNextTrack              ├─ VODProtocolHandler.getNextTrack
+   │     ├─ API: anonymous token (shared)       │     ├─ API: anonymous token (shared)
+   │     ├─ API: items/20876                    │     ├─ API: items/358871 (show)
+   │     │     → customFields.hlsURL,           │     │     → seasons.items[0].id
+   │     │       title, logo                    │     ├─ API: items/<seasonId>
+   │     └─ fetch master.m3u8                   │     │     → episodes.items[0] where
+   │           → HLS.lowest_variant()           │     │       an offer is "Available"
+   │           (lowest-BANDWIDTH variant)        │     ├─ API: account/items/<id>/videos
+   │                                             │     │     → first resource with
+   │                                             │     │       drm == "None"
+   │                                             │     └─ fetch master.m3u8
+   │                                             │           → HLS.audio_variant()
+   │                                             │           (pure audio-only rendition,
+   │                                             │            falling back to
+   │                                             │            HLS.lowest_variant())
+   │                                             │
+   └─ getFormatForURL → "drlive"                 └─ getFormatForURL → "drlive"
          └─ custom-convert.conf:  drlive → flc   [ffmpeg -i $URL$ -vn -c:a flac -f flac -]
 ```
+
+Both protocol handlers share `Plugins::DRLive::HLS` for master-playlist parsing
+and `Plugins::DRLive::API` for the anonymous token and all DR HTTP calls, and
+both end up handing ffmpeg a plain HLS URL - `drvod://` is a second URL scheme
+mapped to the *same* `drlive` content type (see `custom-types.conf`), so it
+reuses the existing `custom-convert.conf` profiles rather than needing its own.
 
 `custom-convert.conf` declares only the `R` (remote URL) capability so LMS hands
 the playlist URL to `ffmpeg` instead of trying to feed it through a socket.
 
-If the catalogue API is unreachable, the handler falls back to a bundled static
-URL per channel.
+If the catalogue API is unreachable, the live-channel handler falls back to a
+bundled static URL per channel. The on-demand handler has no such fallback - a
+stale specific-episode URL isn't something a static table can usefully cover -
+so a catalogue outage means that entry's playback fails and logs why, rather
+than playing something wrong.
 
 ## Development / testing
 
@@ -160,6 +204,7 @@ lookup succeeds anywhere, but the stream bytes do not.
 
 ## Status
 
-v0.1.3 — works for the three default channels; resolution and playback verified
-end to end against the live API, and against a real Lyrion 9.1.1 server. Not yet done: a settings page, now‑playing EPG
-text, DR radio (P1–P8).
+v0.1.4 — works for the three default channels and the TVA on-demand show;
+resolution and playback verified end to end against the live API (both the
+live-channel and on-demand chains), and against a real Lyrion 9.1.1 server.
+Not yet done: a settings page, now‑playing EPG text, DR radio (P1–P8).

@@ -1,11 +1,15 @@
 package Plugins::DRLive::Plugin;
 
-# DR Live - play the audio of DR's live TV channels on Lyrion players.
+# DR Live - play the audio of DR's live TV channels, and the latest episode of
+# configured on-demand shows, on Lyrion players.
 #
-# Adds a "DR Live" menu under Radio with one playable item per channel. Each
-# item is a drlive://<id> URL handled by Plugins::DRLive::ProtocolHandler.
-# Add an item to your Favourites to get a durable one-tap preset - the favourite
-# stores drlive://<id>, so it keeps working even when DR rotates the CDN URL.
+# Adds a "DR Live" menu under Radio with one playable item per channel (a
+# drlive://<id> URL, Plugins::DRLive::ProtocolHandler) and one per configured
+# show (a drvod://<id> URL, Plugins::DRLive::VODProtocolHandler, always
+# resolving to that show's most recently published episode - e.g. TVA, DR's
+# news programme). Add an item to your Favourites to get a durable one-tap
+# preset - the favourite stores the drlive:// or drvod:// URL, so it keeps
+# working even when DR rotates the CDN URL or publishes a new episode.
 
 use strict;
 use warnings;
@@ -33,6 +37,7 @@ BEGIN {
 }
 
 use Plugins::DRLive::ProtocolHandler;
+use Plugins::DRLive::VODProtocolHandler;
 use Plugins::DRLive::API;
 
 my $prefs = preferences('plugin.drlive');
@@ -48,15 +53,27 @@ my @DEFAULT_CHANNELS = (
 	{ id => '20892', name => 'DR Ramasjang' },
 );
 
+# On-demand shows whose latest episode gets its own menu entry. 358871 is TVA
+# (DR's flagship news programme, https://www.dr.dk/drtv/serie/tva_358871),
+# which publishes several times a day on no fixed schedule; the entry always
+# points at whatever DR most recently published, not a specific timeslot.
+my @DEFAULT_SHOWS = (
+	{ id => '358871', name => 'TVA' },
+);
+
 sub initPlugin {
 	my $class = shift;
 
 	$prefs->init({
 		channels => [ @DEFAULT_CHANNELS ],
+		shows    => [ @DEFAULT_SHOWS ],
 	});
 
 	Slim::Player::ProtocolHandlers->registerHandler(
 		drlive => 'Plugins::DRLive::ProtocolHandler'
+	);
+	Slim::Player::ProtocolHandlers->registerHandler(
+		drvod => 'Plugins::DRLive::VODProtocolHandler'
 	);
 
 	$class->SUPER::initPlugin(
@@ -91,11 +108,17 @@ sub initPlugin {
 sub _warmCache {
 	return unless _haveFFmpeg();
 	Plugins::DRLive::API->getStreamInfo($_->{id}, sub { }) for @{ _channels() };
+	Plugins::DRLive::API->getLatestVod($_->{id}, sub { })  for @{ _shows() };
 }
 
 sub _channels {
 	my $channels = $prefs->get('channels');
 	return (ref $channels eq 'ARRAY' && @$channels) ? $channels : [ @DEFAULT_CHANNELS ];
+}
+
+sub _shows {
+	my $shows = $prefs->get('shows');
+	return (ref $shows eq 'ARRAY' && @$shows) ? $shows : [ @DEFAULT_SHOWS ];
 }
 
 # Cached per server run - findbin() hits the filesystem.
@@ -126,9 +149,10 @@ sub feed {
 	}
 
 	my $channels = _channels();
+	my $shows    = _shows();
 
 	my @items;
-	my $pending = scalar @$channels;
+	my $pending = @$channels + @$shows;
 
 	my $respond = sub {
 		$cb->({
@@ -140,11 +164,11 @@ sub feed {
 
 	return $respond->() unless $pending;
 
-	# Resolve every channel before answering, so the menu carries real titles and
-	# logos on the FIRST render rather than a row of placeholders that only fill
-	# in next time. getStreamInfo always calls back (it falls back to the static
-	# table) and caches for an hour, so this costs one request per channel per
-	# hour at worst, and nothing at all once warm.
+	# Resolve everything before answering, so the menu carries real titles and
+	# logos on the FIRST render rather than a row of placeholders that only
+	# fill in next time. Both getStreamInfo and getLatestVod always call back
+	# and cache their result, so this costs at most one request per entry per
+	# cache period, and nothing at all once warm.
 	for my $i (0 .. $#$channels) {
 		my $ch = $channels->[$i];
 
@@ -152,11 +176,30 @@ sub feed {
 			my $info = shift;
 
 			# Indexed, not pushed: the callbacks finish in arbitrary order and
-			# the menu should keep the configured channel order.
+			# the menu should keep the configured order.
 			$items[$i] = {
 				name  => ($info && $info->{title}) || $ch->{name},
 				type  => 'audio',
 				url   => 'drlive://' . $ch->{id},
+				image => ($info && $info->{logo}) || ICON,
+			};
+
+			$respond->() if --$pending == 0;
+		});
+	}
+
+	my $offset = scalar @$channels;
+	for my $j (0 .. $#$shows) {
+		my $sh  = $shows->[$j];
+		my $idx = $offset + $j;
+
+		Plugins::DRLive::API->getLatestVod($sh->{id}, sub {
+			my $info = shift;
+
+			$items[$idx] = {
+				name  => ($info && $info->{title}) || $sh->{name},
+				type  => 'audio',
+				url   => 'drvod://' . $sh->{id},
 				image => ($info && $info->{logo}) || ICON,
 			};
 

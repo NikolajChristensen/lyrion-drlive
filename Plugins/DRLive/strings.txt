@@ -1,0 +1,11 @@
+PLUGIN_DRLIVE
+	EN	DR Live
+	DA	DR Live
+
+PLUGIN_DRLIVE_DESC
+	EN	Listen to the audio of DR's live TV channels (DR1, DR2, DR Ramasjang) on your players. Stream URLs are resolved from DR's own catalogue, transcoded to FLAC with ffmpeg.
+	DA	Lyt til lyden fra DR's direkte tv-kanaler (DR1, DR2, DR Ramasjang) på dine afspillere. Stream-URL'er hentes fra DR's eget katalog og konverteres til FLAC med ffmpeg.
+
+PLUGIN_DRLIVE_STREAM_TYPE
+	EN	DR Live (HLS)
+	DA	DR Live (HLS)

@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<extension>
+	<id>8f1a9667-48a2-4f8c-934f-5dac353c3749</id>
+	<name>PLUGIN_DRLIVE</name>
+	<module>Plugins::DRLive::Plugin</module>
+	<version>0.1.0</version>
+	<description>PLUGIN_DRLIVE_DESC</description>
+	<creator>nikolajmd</creator>
+	<category>radio</category>
+	<defaultState>enabled</defaultState>
+	<playerMenu>RADIO</playerMenu>
+	<type>2</type>
+	<targetApplication>
+		<id>Lyrion Music Server</id>
+		<minVersion>8.0</minVersion>
+		<maxVersion>*</maxVersion>
+	</targetApplication>
+</extension>

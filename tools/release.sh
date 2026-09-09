@@ -34,8 +34,10 @@ perl -i -pe "s{<version>[^<]*</version>}{<version>${VERSION}</version>}" Plugins
 echo "==> build $ZIP"
 mkdir -p dist
 rm -f "$ZIP"
-# -X drops uid/gid/timestamps that differ per machine, so rebuilding the same
-# source on another box produces the same archive.
+# -X drops uid/gid and platform extra fields, so the archive carries no local
+# user metadata. It is NOT byte-reproducible - entry mtimes still vary - which
+# is fine here because the sha1 below is computed from the artefact just built
+# and written straight into repo.xml.
 zip -qrX "$ZIP" Plugins/DRLive -x '*.swp' '*~' '*/.DS_Store'
 unzip -l "$ZIP"
 

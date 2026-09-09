@@ -10,7 +10,7 @@
 			<category>radio</category>
 			<!-- Packaged plugin, attached to the matching GitHub release. -->
 			<url>https://github.com/NikolajChristensen/lyrion-drlive/releases/download/v0.1.1/DRLive-0.1.1.zip</url>
-			<sha>602d2f7e9648bf722ec78e20aa952460003bedc9</sha>
+			<sha>5e594ccf53bb538e0265f3f07864fce42e96899a</sha>
 			<link>https://github.com/NikolajChristensen/lyrion-drlive</link>
 			<creator>NikolajChristensen</creator>
 		</plugin>

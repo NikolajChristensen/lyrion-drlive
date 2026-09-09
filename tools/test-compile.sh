@@ -15,7 +15,7 @@ cd "$(dirname "$0")/.."
 STUB="$(mktemp -d)"
 trap 'rm -rf "$STUB"' EXIT
 
-mkdir -p "$STUB"/Slim/{Plugin,Utils,Player/Protocols,Networking} "$STUB"/JSON
+mkdir -p "$STUB"/Slim/{Plugin,Utils,Player/Protocols,Networking,Music} "$STUB"/JSON
 
 cat > "$STUB/Slim/Plugin/OPMLBased.pm" <<'EOF'
 package Slim::Plugin::OPMLBased; sub initPlugin {1} 1;
@@ -45,6 +45,9 @@ package Slim::Utils::Strings; sub string {''} 1;
 EOF
 cat > "$STUB/Slim/Utils/Cache.pm" <<'EOF'
 package Slim::Utils::Cache; sub new { bless {}, shift } sub get {} sub set {} 1;
+EOF
+cat > "$STUB/Slim/Music/Info.pm" <<'EOF'
+package Slim::Music::Info; sub setDuration {1} sub getDuration {undef} 1;
 EOF
 cat > "$STUB/Slim/Player/ProtocolHandlers.pm" <<'EOF'
 package Slim::Player::ProtocolHandlers; sub registerHandler {1} 1;

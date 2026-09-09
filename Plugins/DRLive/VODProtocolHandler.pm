@@ -15,6 +15,7 @@ use warnings;
 
 use base qw(Slim::Player::Protocols::HTTP);
 
+use Slim::Music::Info;
 use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Utils::Log;
 use Slim::Utils::Strings;
@@ -60,6 +61,17 @@ sub getNextTrack {
 		}
 
 		$song->pluginData(drlive => $info);
+
+		# getMetadataFor's 'duration' key alone does NOT drive the progress bar:
+		# for a piped/transcoded remote stream (canDirectStream => 0) LMS has no
+		# HTTP response to estimate length from, so $song->duration() falls back
+		# to Slim::Music::Info::getDuration($url) - which reads a DB attribute
+		# that only setDuration() (below) populates. The drvod://<show-id> URL
+		# stays the same across episodes, so this needs to run on every resolve
+		# to keep it matching whichever episode is now behind that URL.
+		if ($info->{duration}) {
+			Slim::Music::Info::setDuration($url, $info->{duration});
+		}
 
 		# Fetch the master playlist and prefer a pure audio-only rendition -
 		# smaller, and never trips ffmpeg's "Invalid NAL unit size" warnings

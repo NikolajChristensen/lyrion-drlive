@@ -202,9 +202,23 @@ straight into `ffmpeg -i` on the server to test in isolation.
 Remember the media itself is geo-restricted to Denmark / the EU — the catalogue
 lookup succeeds anywhere, but the stream bytes do not.
 
+**On-demand shows (TVA) show a progress bar but can't be scrubbed**
+
+Expected for now. LMS gets total duration from a database attribute
+(`Slim::Music::Info::setDuration`), which the plugin sets from DR's own episode
+metadata - that's a straightforward lookup, and the progress bar reflects it.
+Actual seeking is a different mechanism: for a transcoded remote stream, LMS
+restarts the ffmpeg process at a new `-ss` offset, which requires a dedicated
+`custom-convert.conf` profile declaring the `T` capability plus a protocol-level
+`getSeekData` implementation. Deliberately not done yet - it would need to live
+on a content type separate from the live channels, since offering a scrubber on
+a 24/7 live stream doesn't make sense.
+
 ## Status
 
-v0.1.4 — works for the three default channels and the TVA on-demand show;
+v0.1.5 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
-live-channel and on-demand chains), and against a real Lyrion 9.1.1 server.
-Not yet done: a settings page, now‑playing EPG text, DR radio (P1–P8).
+live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The
+on-demand progress bar now shows the episode's real length. Not yet done: a
+settings page, now‑playing EPG text, DR radio (P1–P8), and actual seeking on
+on-demand content (see Troubleshooting).

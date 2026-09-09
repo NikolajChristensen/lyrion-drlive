@@ -33,7 +33,9 @@ perl -i -pe "s{<version>[^<]*</version>}{<version>${VERSION}</version>}" Plugins
 
 echo "==> build $ZIP"
 mkdir -p dist
-rm -f "$ZIP"
+# Keep only the current artefact: older zips are already attached to their own
+# GitHub releases, and a dist/ full of stale versions invites installing one.
+rm -f dist/DRLive-*.zip
 # -X drops uid/gid and platform extra fields, so the archive carries no local
 # user metadata. It is NOT byte-reproducible - entry mtimes still vary - which
 # is fine here because the sha1 below is computed from the artefact just built

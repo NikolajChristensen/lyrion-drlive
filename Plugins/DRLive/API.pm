@@ -22,6 +22,11 @@ use Slim::Utils::Log;
 use constant SSO_URL   => 'https://isl.dr-massive.com/api/authorization/anonymous-sso?device=web_browser&lang=da&supportFallbackToken=true';
 use constant ITEM_URL  => 'https://production-cdn.dr-massive.com/api/items/%s?device=web_browser&expand=all&ff=idp,ldp,rpt&geoLocation=dk&isDeviceAbroad=false&lang=da&segments=drtv,optedout&sub=Anonymous';
 
+# DR serves channel logos at 2160x2160. LMS's image proxy does not merely run
+# slow on those - it times out without erroring, so artwork silently never
+# appears. DR's own resizer answers instantly, so ask it for a menu-sized image.
+use constant LOGO_PX   => 300;
+
 use constant TOKEN_TTL => 50 * 60;
 use constant INFO_TTL  => 60 * 60;
 
@@ -41,10 +46,13 @@ sub fallbackName {
 	return $FALLBACK{$id} ? $FALLBACK{$id}->{name} : undef;
 }
 
+# The cache key carries a version: Slim::Utils::Cache persists across restarts,
+# so an upgrade that changes the shape or content of $info (v2 shrank the logo
+# URL) must not keep serving entries written by the previous version.
 # Synchronous cache read only - safe to call from getMetadataFor / menu build.
 sub cachedInfo {
 	my ($class, $id) = @_;
-	return $cache->get("drlive_info_$id");
+	return $cache->get("drlive_info_v2_$id");
 }
 
 # Async: $cb->({ url => <hls master>, title => ..., logo => ... })
@@ -52,7 +60,7 @@ sub cachedInfo {
 sub getStreamInfo {
 	my ($class, $id, $cb) = @_;
 
-	if (my $cached = $cache->get("drlive_info_$id")) {
+	if (my $cached = $cache->get("drlive_info_v2_$id")) {
 		return $cb->($cached);
 	}
 
@@ -92,7 +100,7 @@ sub getStreamInfo {
 					logo  => _logo($data->{images}),
 				};
 
-				$cache->set("drlive_info_$id", $info, INFO_TTL);
+				$cache->set("drlive_info_v2_$id", $info, INFO_TTL);
 				main::INFOLOG && $log->is_info && $log->info("DRLive: resolved channel $id -> $url");
 				$cb->($info);
 			},
@@ -147,7 +155,14 @@ sub _getToken {
 sub _logo {
 	my $images = shift or return undef;
 	my $u = $images->{logo} || $images->{square} || $images->{tile} || $images->{wallpaper} or return undef;
-	# DR image URLs contain a literal "$value" segment that must survive as-is.
+
+	# Rewrite only the size parameters: the literal "$value" path segment and
+	# the single-quoted values around it must survive untouched, or DR's image
+	# service returns nothing. See LOGO_PX above for why this matters.
+	my $px = LOGO_PX;
+	$u =~ s/([?&])Width=\d+/${1}Width=$px/;
+	$u =~ s/([?&])Height=\d+/${1}Height=$px/;
+
 	return $u;
 }
 

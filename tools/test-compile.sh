@@ -37,6 +37,9 @@ EOF
 cat > "$STUB/Slim/Utils/Misc.pm" <<'EOF'
 package Slim::Utils::Misc; sub findbin { undef } 1;
 EOF
+cat > "$STUB/Slim/Utils/Timers.pm" <<'EOF'
+package Slim::Utils::Timers; sub setTimer {1} sub killTimers {1} 1;
+EOF
 cat > "$STUB/Slim/Utils/Strings.pm" <<'EOF'
 package Slim::Utils::Strings; sub string {''} 1;
 EOF

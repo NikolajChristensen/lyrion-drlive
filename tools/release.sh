@@ -26,6 +26,7 @@ URL="https://github.com/${REPO_SLUG}/releases/download/v${VERSION}/DRLive-${VERS
 
 echo "==> tests"
 perl tools/test-variant.pl
+perl tools/test-logo.pl
 ./tools/test-compile.sh
 
 echo "==> version -> $VERSION"

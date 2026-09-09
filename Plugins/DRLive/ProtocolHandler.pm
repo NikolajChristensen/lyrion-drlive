@@ -94,7 +94,7 @@ sub getMetadataFor {
 	my $title = ($info && $info->{title})
 		|| ($id && Plugins::DRLive::API->fallbackName($id))
 		|| 'DR Live';
-	my $icon = ($info && $info->{logo}) || 'html/images/radio.png';
+	my $icon = ($info && $info->{logo}) || 'plugins/DRLive/html/images/icon.png';
 
 	return {
 		title   => $title,

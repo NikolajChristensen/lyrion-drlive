@@ -67,6 +67,25 @@ The channel list is a server preference `plugin.drlive:channels`, an array of
 To find another channel's id, open it on <https://www.dr.dk/drtv> and read the
 number at the end of the URL (`/kanal/dr2_20876` → `20876`).
 
+## Artwork
+
+The plugin ships its own icon for the `DR Live` entry in the Radio menu, and
+uses DR's own channel logos everywhere else — menu rows, Now Playing, and
+Favourites.
+
+Two details make that work, both of which fail silently if you get them wrong:
+
+- DR publishes those logos at **2160×2160**. LMS's image proxy does not merely
+  resize those slowly, it *times out* without logging an error, so the artwork
+  simply never appears. The plugin rewrites the `Width`/`Height` parameters in
+  DR's image URL to ask DR's own resizer for a 300px image instead — that drops
+  a logo from ~23 KB to ~1.7 KB and takes the proxy from a 60 s timeout to
+  0.2 s. The literal `$value` path segment and the single-quoted parameters in
+  those URLs must survive untouched; `tools/test-logo.pl` guards that.
+- The menu resolves every channel *before* it answers, so logos and real
+  channel titles are present on the first render rather than appearing only on
+  the second visit.
+
 ## How it works
 
 ```
@@ -92,6 +111,7 @@ URL per channel.
 
 ```
 perl tools/test-variant.pl   # unit test for the playlist-parsing helpers
+perl tools/test-logo.pl      # unit test for the logo-URL rewriting
 tools/test-compile.sh        # compile + load every module against stubbed Slim::* classes
 tools/test-resolve.sh [id]   # end-to-end: token → item → variant → ffmpeg (needs curl, python3, ffmpeg)
 ```
@@ -140,6 +160,6 @@ lookup succeeds anywhere, but the stream bytes do not.
 
 ## Status
 
-v0.1.2 — works for the three default channels; resolution and playback verified
+v0.1.3 — works for the three default channels; resolution and playback verified
 end to end against the live API, and against a real Lyrion 9.1.1 server. Not yet done: a settings page, now‑playing EPG
-text, DR radio (P1–P8), channel logos in the menu before the first play.
+text, DR radio (P1–P8).

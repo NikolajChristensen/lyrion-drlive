@@ -16,6 +16,7 @@ use Slim::Utils::Log;
 use Slim::Utils::Misc;
 use Slim::Utils::Prefs;
 use Slim::Utils::Strings;
+use Slim::Utils::Timers;
 use Slim::Player::ProtocolHandlers;
 
 # Register the log category BEFORE the two submodules are compiled: both call
@@ -35,6 +36,10 @@ use Plugins::DRLive::ProtocolHandler;
 use Plugins::DRLive::API;
 
 my $prefs = preferences('plugin.drlive');
+
+# Shipped with the plugin; also declared as <icon> in install.xml so the entry
+# in the Radio menu uses it instead of LMS's generic radio symbol.
+use constant ICON => 'plugins/DRLive/html/images/icon.png';
 
 # DR's current linear TV line-up. ids are stable dr-massive catalogue item ids.
 my @DEFAULT_CHANNELS = (
@@ -74,7 +79,23 @@ sub initPlugin {
 		);
 	}
 
+	# Resolve the channels a little after startup so Favourites and Now Playing
+	# have titles and artwork before the DR Live menu is ever opened. Delayed
+	# rather than immediate because outbound networking is not necessarily up
+	# yet when plugins initialise.
+	Slim::Utils::Timers::setTimer(undef, time() + 15, \&_warmCache);
+
 	main::INFOLOG && $log->is_info && $log->info('DRLive initialised');
+}
+
+sub _warmCache {
+	return unless _haveFFmpeg();
+	Plugins::DRLive::API->getStreamInfo($_->{id}, sub { }) for @{ _channels() };
+}
+
+sub _channels {
+	my $channels = $prefs->get('channels');
+	return (ref $channels eq 'ARRAY' && @$channels) ? $channels : [ @DEFAULT_CHANNELS ];
 }
 
 # Cached per server run - findbin() hits the filesystem.
@@ -104,29 +125,44 @@ sub feed {
 		});
 	}
 
-	my $channels = $prefs->get('channels');
-	$channels = [ @DEFAULT_CHANNELS ] unless ref $channels eq 'ARRAY' && @$channels;
+	my $channels = _channels();
 
-	my @items = map {
-		my $ch   = $_;
-		my $info = Plugins::DRLive::API->cachedInfo($ch->{id});
+	my @items;
+	my $pending = scalar @$channels;
 
-		# warm the cache so metadata/logo are ready on the next render
-		Plugins::DRLive::API->getStreamInfo($ch->{id}, sub { }) unless $info;
+	my $respond = sub {
+		$cb->({
+			type  => 'opml',
+			title => Slim::Utils::Strings::string('PLUGIN_DRLIVE'),
+			items => \@items,
+		});
+	};
 
-		{
-			name  => ($info && $info->{title}) || $ch->{name},
-			type  => 'audio',
-			url   => 'drlive://' . $ch->{id},
-			image => ($info && $info->{logo}) || 'html/images/radio.png',
-		}
-	} @$channels;
+	return $respond->() unless $pending;
 
-	$cb->({
-		type  => 'opml',
-		title => Slim::Utils::Strings::string('PLUGIN_DRLIVE'),
-		items => \@items,
-	});
+	# Resolve every channel before answering, so the menu carries real titles and
+	# logos on the FIRST render rather than a row of placeholders that only fill
+	# in next time. getStreamInfo always calls back (it falls back to the static
+	# table) and caches for an hour, so this costs one request per channel per
+	# hour at worst, and nothing at all once warm.
+	for my $i (0 .. $#$channels) {
+		my $ch = $channels->[$i];
+
+		Plugins::DRLive::API->getStreamInfo($ch->{id}, sub {
+			my $info = shift;
+
+			# Indexed, not pushed: the callbacks finish in arbitrary order and
+			# the menu should keep the configured channel order.
+			$items[$i] = {
+				name  => ($info && $info->{title}) || $ch->{name},
+				type  => 'audio',
+				url   => 'drlive://' . $ch->{id},
+				image => ($info && $info->{logo}) || ICON,
+			};
+
+			$respond->() if --$pending == 0;
+		});
+	}
 }
 
 1;

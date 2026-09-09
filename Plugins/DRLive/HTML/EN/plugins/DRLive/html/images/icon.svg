@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b4bd8"/>
+      <stop offset="1" stop-color="#16267a"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="52" fill="url(#g)"/>
+  <!-- broadcast arcs: thick and widely spaced so they survive a 32px render -->
+  <g fill="none" stroke="#ffffff" stroke-width="15" stroke-linecap="round">
+    <path d="M92 168 A52 52 0 0 1 92 88"/>
+    <path d="M164 88 A52 52 0 0 1 164 168"/>
+    <path d="M58 196 A96 96 0 0 1 58 60"/>
+    <path d="M198 60 A96 96 0 0 1 198 196"/>
+  </g>
+  <!-- live dot -->
+  <circle cx="128" cy="128" r="25" fill="#ff3b30"/>
+</svg>

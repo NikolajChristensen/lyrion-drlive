@@ -71,4 +71,22 @@ is(T::_absUrl('4.m3u8', 'https://h.net/a/b/master.m3u8?token=x'),
    'https://h.net/a/b/4.m3u8',
    '_absUrl strips query and last segment');
 
+# Regression: a "/" inside the query string must not be taken for the last
+# path separator when deriving the base directory.
+is(T::_absUrl('4.m3u8', 'https://h.net/a/b/master.m3u8?p=x/y&q=1'),
+   'https://h.net/a/b/4.m3u8',
+   '_absUrl ignores a slash inside the query string');
+
+is(T::_absUrl('4.m3u8', 'https://h.net/a/b/master.m3u8#frag/ment'),
+   'https://h.net/a/b/4.m3u8',
+   '_absUrl ignores a slash inside the fragment');
+
+is(T::_absUrl('/abs/v.m3u8', 'https://h.net/a/b/master.m3u8?p=x/y'),
+   'https://h.net/abs/v.m3u8',
+   '_absUrl resolves root-relative against scheme+host, query ignored');
+
+is(T::_absUrl('  4.m3u8  ', 'https://h.net/a/b/master.m3u8'),
+   'https://h.net/a/b/4.m3u8',
+   '_absUrl trims surrounding whitespace');
+
 exit($ok ? 0 : 1);

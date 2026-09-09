@@ -84,16 +84,31 @@ URL per channel.
 ## Development / testing
 
 ```
-tools/test-resolve.sh [id]   # end-to-end: token → item → variant → ffmpeg (needs curl, python3, ffmpeg)
 perl tools/test-variant.pl   # unit test for the playlist-parsing helpers
+tools/test-compile.sh        # compile + load every module against stubbed Slim::* classes
+tools/test-resolve.sh [id]   # end-to-end: token → item → variant → ffmpeg (needs curl, python3, ffmpeg)
 ```
 
-There is no way to fully compile the Perl outside a running LMS (it needs the
-server's bundled XS modules); load it into a real server and watch
-`server.log` with the `plugin.drlive` category at DEBUG.
+`test-compile.sh` generates throwaway stubs for the `Slim::*` classes and
+`JSON::XS`, so it catches syntax errors and load-order mistakes without a
+running server. It cannot check behaviour against the real LMS API — for that,
+load the plugin into a real server and watch `server.log` with the
+`plugin.drlive` category at DEBUG.
+
+### Cutting a release
+
+```
+tools/release.sh 0.1.2             # test, bump, rebuild zip, rewrite repo.xml
+tools/release.sh 0.1.2 --publish   # ...then commit, tag and create the GitHub release
+```
+
+The plugin version, the zip URL and its sha1 must always move together: LMS
+downloads the zip named in `repo.xml`'s `<url>` and rejects it if the checksum
+doesn't match `<sha>`, so a partial bump ships a plugin that silently fails to
+install. The script rewrites all three and refuses to finish if any didn't take.
 
 ## Status
 
-v0.1.0 — works for the three default channels. Not yet done: a settings page,
-now‑playing EPG text, DR radio (P1–P8), channel logos in the menu before the
-first play.
+v0.1.1 — works for the three default channels; resolution and playback verified
+end to end against the live API. Not yet done: a settings page, now‑playing EPG
+text, DR radio (P1–P8), channel logos in the menu before the first play.

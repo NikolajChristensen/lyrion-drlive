@@ -150,7 +150,11 @@ sub _absUrl {
 		return ($schemeHost || '') . $ref;
 	}
 
-	(my $dir = $base) =~ s{[^/]*(?:\?.*)?$}{};
+	# Strip query/fragment first. Doing both in one pass lets a "/" inside a
+	# query string be mistaken for the final path separator, because the regex
+	# engine takes the leftmost match rather than the last slash of the path.
+	(my $path = $base) =~ s/[?#].*\z//s;
+	(my $dir  = $path) =~ s{[^/]*\z}{};
 	return $dir . $ref;
 }
 

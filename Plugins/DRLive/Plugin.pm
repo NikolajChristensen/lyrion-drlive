@@ -17,14 +17,21 @@ use Slim::Utils::Prefs;
 use Slim::Utils::Strings;
 use Slim::Player::ProtocolHandlers;
 
+# Register the log category BEFORE the two submodules are compiled: both call
+# logger('plugin.drlive') at file scope, and that runs during the `use`
+# statements below. Registering afterwards would leave them on an unconfigured
+# category inheriting the root level.
+my $log;
+BEGIN {
+	$log = Slim::Utils::Log->addLogCategory({
+		category     => 'plugin.drlive',
+		defaultLevel => 'WARN',
+		description  => 'PLUGIN_DRLIVE',
+	});
+}
+
 use Plugins::DRLive::ProtocolHandler;
 use Plugins::DRLive::API;
-
-my $log = Slim::Utils::Log->addLogCategory({
-	category     => 'plugin.drlive',
-	defaultLevel => 'WARN',
-	description  => 'PLUGIN_DRLIVE',
-});
 
 my $prefs = preferences('plugin.drlive');
 

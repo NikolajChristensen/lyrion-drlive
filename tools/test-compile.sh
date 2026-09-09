@@ -34,6 +34,9 @@ sub preferences { bless {}, 'Slim::Utils::Prefs::P' }
 package Slim::Utils::Prefs::P; sub init {} sub get {} sub set {}
 package Slim::Utils::Prefs; 1;
 EOF
+cat > "$STUB/Slim/Utils/Misc.pm" <<'EOF'
+package Slim::Utils::Misc; sub findbin { undef } 1;
+EOF
 cat > "$STUB/Slim/Utils/Strings.pm" <<'EOF'
 package Slim::Utils::Strings; sub string {''} 1;
 EOF

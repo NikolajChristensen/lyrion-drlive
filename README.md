@@ -10,10 +10,17 @@ URL from DR's own catalogue API, picks the lowest‑bandwidth rendition, and let
 ## Requirements
 
 - Lyrion Music Server 8.0+ (a.k.a. Logitech Media Server).
-- `ffmpeg` available to the server. LMS bundles it on most platforms
-  (Synology / QNAP / Docker / the Linux packages). If yours doesn't, install
-  `ffmpeg` and make sure `Settings → Information` lists it, or point the
-  `[ffmpeg]` entries in `custom-convert.conf` at a full path.
+- **`ffmpeg`, installed on the server.** LMS does *not* bundle it — the Linux
+  packages in particular do not — and everything here transcodes through it, so
+  without it nothing will play. On Debian/Ubuntu:
+
+  ```
+  sudo apt install ffmpeg && sudo systemctl restart lyrionmusicserver
+  ```
+
+  LMS finds binaries on the system path, so no further configuration is normally
+  needed. If yours lives somewhere unusual, point the `[ffmpeg]` entries in
+  `custom-convert.conf` at an absolute path instead.
 - The server must be in **Denmark / the EU** — DR geo‑restricts the media
   (the catalogue lookup works anywhere, the stream bytes do not).
 
@@ -107,8 +114,32 @@ downloads the zip named in `repo.xml`'s `<url>` and rejects it if the checksum
 doesn't match `<sha>`, so a partial bump ships a plugin that silently fails to
 install. The script rewrites all three and refuses to finish if any didn't take.
 
+## Troubleshooting
+
+**`Error: Couldn't create command line for drlive playback` in `server.log`**
+
+LMS could not build a transcode command — almost always because it cannot find
+`ffmpeg`. Confirm it in `Settings → Advanced → File Types`: find the `drlive`
+rows (FLAC / MP3 / PCM). If the dropdowns are greyed out and offer only
+"Disabled", the binary is missing; a working profile offers a selectable option
+instead. Install `ffmpeg` and restart the server.
+
+From v0.1.2 the plugin checks for `ffmpeg` at startup and logs an explicit error
+rather than leaving you with the message above, and the `DR Live` menu shows the
+reason instead of an unplayable channel list.
+
+**Nothing plays, but `ffmpeg` is installed**
+
+Raise the `plugin.drlive` log category to DEBUG under
+`Settings → Advanced → Logging` and retry. The handler logs the resolved channel
+id and the exact variant URL it handed to ffmpeg; that URL can be pasted
+straight into `ffmpeg -i` on the server to test in isolation.
+
+Remember the media itself is geo-restricted to Denmark / the EU — the catalogue
+lookup succeeds anywhere, but the stream bytes do not.
+
 ## Status
 
-v0.1.1 — works for the three default channels; resolution and playback verified
-end to end against the live API. Not yet done: a settings page, now‑playing EPG
+v0.1.2 — works for the three default channels; resolution and playback verified
+end to end against the live API, and against a real Lyrion 9.1.1 server. Not yet done: a settings page, now‑playing EPG
 text, DR radio (P1–P8), channel logos in the menu before the first play.

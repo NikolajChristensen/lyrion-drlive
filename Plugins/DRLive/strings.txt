@@ -9,3 +9,7 @@ PLUGIN_DRLIVE_DESC
 PLUGIN_DRLIVE_STREAM_TYPE
 	EN	DR Live (HLS)
 	DA	DR Live (HLS)
+
+PLUGIN_DRLIVE_NO_FFMPEG
+	EN	ffmpeg is not installed on this server, so DR Live cannot play. Install ffmpeg and restart the server.
+	DA	ffmpeg er ikke installeret på denne server, så DR Live kan ikke afspille. Installér ffmpeg og genstart serveren.

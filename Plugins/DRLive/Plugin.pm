@@ -13,6 +13,7 @@ use warnings;
 use base qw(Slim::Plugin::OPMLBased);
 
 use Slim::Utils::Log;
+use Slim::Utils::Misc;
 use Slim::Utils::Prefs;
 use Slim::Utils::Strings;
 use Slim::Player::ProtocolHandlers;
@@ -60,7 +61,28 @@ sub initPlugin {
 		weight => 55,
 	);
 
+	# Everything here transcodes through ffmpeg (see custom-convert.conf), and a
+	# missing binary only shows up later as LMS's opaque "Couldn't create command
+	# line for drlive playback". Say so plainly at startup instead.
+	unless (_haveFFmpeg()) {
+		$log->error(
+			'DRLive: ffmpeg was not found, so playback WILL fail. Install it on '
+			. 'this server (e.g. "apt install ffmpeg") and restart, or set an '
+			. 'absolute path in the plugin\'s custom-convert.conf. '
+			. 'Settings -> Advanced -> File Types lists the drlive rows as '
+			. 'greyed out while it is missing.'
+		);
+	}
+
 	main::INFOLOG && $log->is_info && $log->info('DRLive initialised');
+}
+
+# Cached per server run - findbin() hits the filesystem.
+my $haveFFmpeg;
+sub _haveFFmpeg {
+	$haveFFmpeg = Slim::Utils::Misc::findbin('ffmpeg') ? 1 : 0
+		unless defined $haveFFmpeg;
+	return $haveFFmpeg;
 }
 
 sub getDisplayName { 'PLUGIN_DRLIVE' }
@@ -69,6 +91,18 @@ sub playerMenu { 'RADIO' }
 
 sub feed {
 	my ($client, $cb, $args) = @_;
+
+	# A channel list that cannot play is worse than an explanation.
+	unless (_haveFFmpeg()) {
+		return $cb->({
+			type  => 'opml',
+			title => Slim::Utils::Strings::string('PLUGIN_DRLIVE'),
+			items => [ {
+				name => Slim::Utils::Strings::string('PLUGIN_DRLIVE_NO_FFMPEG'),
+				type => 'text',
+			} ],
+		});
+	}
 
 	my $channels = $prefs->get('channels');
 	$channels = [ @DEFAULT_CHANNELS ] unless ref $channels eq 'ARRAY' && @$channels;

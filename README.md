@@ -202,6 +202,21 @@ straight into `ffmpeg -i` on the server to test in isolation.
 Remember the media itself is geo-restricted to Denmark / the EU — the catalogue
 lookup succeeds anywhere, but the stream bytes do not.
 
+**TVA fails to play right after a new episode is published ("can't open file")**
+
+Fixed in v0.1.6. DR's own catalogue backend has been observed to briefly
+return an implausible resource for a just-published episode: instead of the
+usual discrete on-demand file, it returns a slice of the *live channel's*
+catch-up/restart buffer with a wildly-wide time window (one observed case: a
+full 6-hour block instead of the ~14-minute episode). Because this plugin
+re-checks "latest" every 10 minutes, it's more likely than a casual viewer to
+catch DR's API in that inconsistent state. The plugin now checks that an
+archive-style resource's window is a plausible size for the episode's own
+catalogue duration and rejects it otherwise - a rejection isn't cached, so the
+next play attempt (or the next 10-minute cache-warm cycle, by which point DR's
+own metadata has typically settled) tries again fresh rather than repeating the
+same bad answer for the rest of the cache window.
+
 **On-demand shows (TVA) show a progress bar but can't be scrubbed**
 
 Expected for now. LMS gets total duration from a database attribute
@@ -216,9 +231,13 @@ a 24/7 live stream doesn't make sense.
 
 ## Status
 
-v0.1.5 — works for the three default channels and the TVA on-demand show;
+v0.1.6 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
 live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The
-on-demand progress bar now shows the episode's real length. Not yet done: a
-settings page, now‑playing EPG text, DR radio (P1–P8), and actual seeking on
-on-demand content (see Troubleshooting).
+on-demand progress bar shows the episode's real length, and an implausible
+live-channel "archive" resource for a just-published episode is rejected
+rather than played (see Troubleshooting). Still open: a rare premature stop a
+few minutes into some on-demand playback, not yet reproduced with debug logs
+(tracked at https://github.com/NikolajChristensen/lyrion-drlive/issues/1). Not
+yet done: a settings page, now‑playing EPG text, DR radio (P1–P8), and actual
+seeking on on-demand content (see Troubleshooting).

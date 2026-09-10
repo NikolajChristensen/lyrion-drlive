@@ -34,6 +34,8 @@ use Slim::Networking::SimpleAsyncHTTP;
 use Slim::Utils::Cache;
 use Slim::Utils::Log;
 
+use Plugins::DRLive::HLS;
+
 use constant SSO_URL    => 'https://isl.dr-massive.com/api/authorization/anonymous-sso?device=web_browser&lang=da&supportFallbackToken=true';
 use constant ITEM_URL   => 'https://production-cdn.dr-massive.com/api/items/%s?device=web_browser&expand=all&ff=idp,ldp,rpt&geoLocation=dk&isDeviceAbroad=false&lang=da&segments=drtv,optedout&sub=Anonymous';
 
@@ -255,14 +257,29 @@ sub _resolveEpisodeVideo {
 			# endpoint can in principle return a DRM'd resource (DR's paid
 			# content works the same way); never assume "None" just because
 			# the field is missing - default to treating that as protected.
-			my ($video) = grep {
-				($_->{accessService} || '') eq 'StandardVideo'
-					&& ($_->{drm} || '') eq 'None'
-					&& $_->{url}
-			} @$resources;
+			#
+			# A candidate can also be a live-channel "archive" URL with an
+			# implausible startTime/endTime window - see
+			# HLS::archive_window_is_sane for why. A loop (not grep) so a
+			# rejection gets logged: this is the one part of the chain most
+			# likely to need a second look if it happens again.
+			my $video;
+			for my $candidate (@$resources) {
+				next unless ($candidate->{accessService} || '') eq 'StandardVideo';
+				next unless ($candidate->{drm} || '') eq 'None';
+				next unless $candidate->{url};
+
+				unless (Plugins::DRLive::HLS::archive_window_is_sane($candidate->{url}, $episode->{duration})) {
+					$log->warn("DRLive: rejecting implausible archive window for episode $id: $candidate->{url}");
+					next;
+				}
+
+				$video = $candidate;
+				last;
+			}
 
 			unless ($video) {
-				$log->warn("DRLive: no unencrypted video resource for episode $id");
+				$log->warn("DRLive: no usable video resource for episode $id");
 				return $cb->(undef);
 			}
 

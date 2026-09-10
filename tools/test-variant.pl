@@ -106,39 +106,42 @@ is(Plugins::DRLive::HLS::abs_url('  4.m3u8  ', 'https://h.net/a/b/master.m3u8'),
    'https://h.net/a/b/4.m3u8',
    'abs_url: trims surrounding whitespace');
 
-# --- archive_window_is_sane ------------------------------------------------
+# --- is_archive_url ---------------------------------------------------------
 
-# Real case: DR's catalogue briefly returned this exact 6-hour window for an
-# episode whose own duration was 840s, minutes after it was published.
-my $badArchiveUrl  = 'https://drlivedr1hls.akamaized.net/hls/live/2113625/drlivedr1/master-archive.m3u8?startTime=1789016399&endTime=1789037999';
-my $goodArchiveUrl = 'https://drlivedr1hls.akamaized.net/hls/live/2113625/drlivedr1/master-archive.m3u8?startTime=1789016399&endTime=1789017240';
+# Real cases from a live server: both a 6-hour bad window AND a correctly-sized
+# one (matching the episode's own 840s catalogue duration almost exactly)
+# still came from this same "live-channel archive" delivery style, and the
+# correctly-sized one still failed moments later with an HTTP 403 - so both
+# must be rejected, not just implausibly-sized ones.
+my $archiveUrlBadWindow  = 'https://drlivedr1hls.akamaized.net/hls/live/2113625/drlivedr1/master-archive.m3u8?startTime=1789016399&endTime=1789037999';
+my $archiveUrlGoodWindow = 'https://drlivedr1hls.akamaized.net/hls/live/2113625/drlivedr1/master-archive.m3u8?startTime=1789016399&endTime=1789017240';
 
-if (!Plugins::DRLive::HLS::archive_window_is_sane($badArchiveUrl, 840)) {
-	print "ok   - archive_window_is_sane: rejects a 6-hour window for an 840s episode\n";
+if (Plugins::DRLive::HLS::is_archive_url($archiveUrlBadWindow)) {
+	print "ok   - is_archive_url: detects the 6-hour-window archive URL\n";
 } else {
 	$ok = 0;
-	print "FAIL - archive_window_is_sane: should have rejected the 6-hour window\n";
+	print "FAIL - is_archive_url: should have detected the archive URL\n";
 }
 
-if (Plugins::DRLive::HLS::archive_window_is_sane($goodArchiveUrl, 840)) {
-	print "ok   - archive_window_is_sane: accepts a window matching the episode duration\n";
+if (Plugins::DRLive::HLS::is_archive_url($archiveUrlGoodWindow)) {
+	print "ok   - is_archive_url: detects a correctly-sized archive URL too (rejected regardless of size)\n";
 } else {
 	$ok = 0;
-	print "FAIL - archive_window_is_sane: should have accepted the correctly-sized window\n";
+	print "FAIL - is_archive_url: should reject archive URLs regardless of window size\n";
 }
 
-if (Plugins::DRLive::HLS::archive_window_is_sane('https://cdn.example.net/plain/master.m3u8', 840)) {
-	print "ok   - archive_window_is_sane: a non-archive URL (no startTime/endTime) always passes\n";
+if (!Plugins::DRLive::HLS::is_archive_url('https://drod20j.akamaized.net/all/clear/none/a2/x/00122625240/stream_fmp4/master_manifest.m3u8')) {
+	print "ok   - is_archive_url: a plain on-demand manifest URL (no startTime/endTime) passes\n";
 } else {
 	$ok = 0;
-	print "FAIL - archive_window_is_sane: a non-archive URL should always pass\n";
+	print "FAIL - is_archive_url: a plain on-demand URL should not be flagged as an archive URL\n";
 }
 
-if (Plugins::DRLive::HLS::archive_window_is_sane($badArchiveUrl, undef)) {
-	print "ok   - archive_window_is_sane: passes when there's no expected duration to compare against\n";
+if (!Plugins::DRLive::HLS::is_archive_url(undef)) {
+	print "ok   - is_archive_url: undef URL is not an archive URL\n";
 } else {
 	$ok = 0;
-	print "FAIL - archive_window_is_sane: should pass when expected duration is unknown\n";
+	print "FAIL - is_archive_url: undef should not be flagged as an archive URL\n";
 }
 
 exit($ok ? 0 : 1);

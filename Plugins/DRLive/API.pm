@@ -18,10 +18,12 @@ package Plugins::DRLive::API;
 # to its most recently published episode:
 #   1. same anonymous token as above
 #   2. GET items/<showId>  -> seasons.items[0].id (the current season)
-#   3. GET items/<seasonId> -> episodes.items[0] that DR marks "Available"
+#   3. GET items/<seasonId> -> episodes.items[] that DR marks "Available"
 #      (the list is already newest-first)
 #   4. GET isl.dr-massive.com/api/account/items/<episodeId>/videos
-#      -> the first resource explicitly marked drm=None
+#      -> the first resource explicitly marked drm=None, excluding a
+#         live-channel "archive" resource (see HLS::is_archive_url) - if the
+#         newest episode offers only that, falls back to the next-newest
 #   No static fallback here: unlike a live channel, a specific past episode's
 #   URL going stale is not something a fixed table can meaningfully cover.
 
@@ -216,19 +218,18 @@ sub _fetchSeasonEpisode {
 
 			my $episodes = ($season->{episodes} || {})->{items} || [];
 
-			# The list is already newest-first; still filter for availability
-			# rather than blindly trusting position 0 - DR is free to include
-			# an upcoming episode ahead of its actual release.
-			my ($episode) = grep {
+			# Already newest-first; keep only the ones DR marks actually
+			# available - it's free to list an upcoming one ahead of release.
+			my @available = grep {
 				grep { ($_->{availability} || '') eq 'Available' } @{ $_->{offers} || [] }
 			} @$episodes;
 
-			unless ($episode) {
+			unless (@available) {
 				$log->warn("DRLive: no available episode in season $seasonId");
 				return $cb->(undef);
 			}
 
-			$class->_resolveEpisodeVideo($showId, $episode, $token, $cb);
+			$class->_tryEpisodes($showId, \@available, $token, $cb);
 		},
 		sub {
 			my ($http, $error) = @_;
@@ -237,6 +238,26 @@ sub _fetchSeasonEpisode {
 		},
 		{ timeout => 15 },
 	)->get(sprintf(ITEM_URL, $seasonId), 'Authorization' => "Bearer $token");
+}
+
+# Tries episodes newest-first, falling through to the next one if the newest
+# has no usable resource yet - see HLS::is_archive_url for why that happens
+# and why we don't just use what DR offers in the meantime.
+sub _tryEpisodes {
+	my ($class, $showId, $episodes, $token, $cb) = @_;
+
+	my $episode = shift @$episodes;
+	unless ($episode) {
+		$log->warn("DRLive: no episode with a usable video resource for show $showId");
+		return $cb->(undef);
+	}
+
+	$class->_resolveEpisodeVideo($showId, $episode, $token, sub {
+		my $info = shift;
+		return $cb->($info) if $info;
+		# _resolveEpisodeVideo already logged why; fall back to the next one.
+		$class->_tryEpisodes($showId, $episodes, $token, $cb);
+	});
 }
 
 sub _resolveEpisodeVideo {
@@ -258,19 +279,18 @@ sub _resolveEpisodeVideo {
 			# content works the same way); never assume "None" just because
 			# the field is missing - default to treating that as protected.
 			#
-			# A candidate can also be a live-channel "archive" URL with an
-			# implausible startTime/endTime window - see
-			# HLS::archive_window_is_sane for why. A loop (not grep) so a
-			# rejection gets logged: this is the one part of the chain most
-			# likely to need a second look if it happens again.
+			# A candidate can also be a live-channel "archive" URL - see
+			# HLS::is_archive_url for why those are declined outright rather
+			# than used. A loop (not grep) so a rejection gets logged: this is
+			# the one part of the chain most likely to need a second look.
 			my $video;
 			for my $candidate (@$resources) {
 				next unless ($candidate->{accessService} || '') eq 'StandardVideo';
 				next unless ($candidate->{drm} || '') eq 'None';
 				next unless $candidate->{url};
 
-				unless (Plugins::DRLive::HLS::archive_window_is_sane($candidate->{url}, $episode->{duration})) {
-					$log->warn("DRLive: rejecting implausible archive window for episode $id: $candidate->{url}");
+				if (Plugins::DRLive::HLS::is_archive_url($candidate->{url})) {
+					$log->warn("DRLive: episode $id offers only a live-channel archive resource, skipping: $candidate->{url}");
 					next;
 				}
 

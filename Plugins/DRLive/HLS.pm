@@ -66,27 +66,30 @@ sub audio_variant {
 
 # Some TVA episodes aren't delivered as a discrete on-demand file at all, but
 # as a slice of the live channel's own catch-up/restart buffer - a
-# "master-archive.m3u8?startTime=...&endTime=..." URL. DR's own catalogue
-# backend has been observed to briefly return an implausibly wide window (a
-# full 6-hour programming block instead of the ~14-minute episode) in the
-# minutes right after a new episode is published, before its metadata has
-# fully settled; re-querying the same episode id minutes later returns a
-# correctly-sized window. Returns false only when the window is clearly wrong
-# relative to the catalogue's own expected duration - a non-archive URL (no
-# startTime/endTime at all) or a missing expected duration both pass, since
-# there's nothing to sanity-check against.
-sub archive_window_is_sane {
-	my ($url, $expectedDuration) = @_;
-	return 1 unless $expectedDuration;
-
-	my ($start) = $url =~ /[?&]startTime=(\d+)/;
-	my ($end)   = $url =~ /[?&]endTime=(\d+)/;
-	return 1 unless defined $start && defined $end;
-
-	my $window = $end - $start;
-	# Generous tolerance - a real episode can run a bit long or short of the
-	# catalogue's stated duration; only reject windows wildly out of range.
-	return $window <= $expectedDuration + 600;
+# "master-archive.m3u8?startTime=...&endTime=..." URL, typically in the
+# minutes right after a new episode is published and before DR has finished
+# repackaging it as a proper file. This has proven unreliable for programmatic
+# (non-browser) playback in two separate, independent ways:
+#
+#   - DR's own catalogue backend has been observed to briefly return an
+#     implausibly wide window (a full 6-hour programming block instead of the
+#     ~14-minute episode) before its metadata settles.
+#   - Even a correctly-sized window (matching the episode's own catalogue
+#     duration almost exactly) can fail moments later with an HTTP 403 from
+#     Akamai - the per-variant tokens embedded in its manifest appear to be
+#     short-lived in a way their outer exp= field (which claims ~1 day
+#     validity) doesn't reveal, and there's no reliable way from here to
+#     verify the actual window, or whether a bare HTTP fetch's minimal
+#     overhead succeeds only because it beats a timeout that ffmpeg's own
+#     startup/probing overhead does not.
+#
+# Rather than gamble against an unknown, unverifiable timeout, this delivery
+# style is declined outright; the caller falls back to an older episode that
+# DR has already packaged as a proper file, like every other episode is.
+sub is_archive_url {
+	my $url = shift;
+	return 0 unless defined $url;
+	return $url =~ /[?&]startTime=\d+/ && $url =~ /[?&]endTime=\d+/;
 }
 
 sub abs_url {

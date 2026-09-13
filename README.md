@@ -154,8 +154,9 @@ than playing something wrong.
 ## Development / testing
 
 ```
-perl tools/test-variant.pl   # unit test for the playlist-parsing helpers
-perl tools/test-logo.pl      # unit test for the logo-URL rewriting
+perl tools/test-variant.pl      # unit test for the playlist-parsing helpers
+perl tools/test-logo.pl         # unit test for the logo-URL rewriting
+perl tools/test-vod-fallback.pl # unit test for the on-demand episode-fallback chain
 tools/test-compile.sh        # compile + load every module against stubbed Slim::* classes
 tools/test-resolve.sh [id]   # end-to-end: token → item → variant → ffmpeg (needs curl, python3, ffmpeg)
 ```
@@ -204,9 +205,9 @@ lookup succeeds anywhere, but the stream bytes do not.
 
 **TVA fails to play right after a new episode is published ("can't open file")**
 
-Fixed in v0.1.7. Right after a new episode publishes, DR sometimes serves it
-not as the usual discrete on-demand file, but as a slice of the *live
-channel's* catch-up/restart buffer instead (a
+Fixed in v0.1.7, hardened further in v0.1.8. Right after a new episode
+publishes, DR sometimes serves it not as the usual discrete on-demand file,
+but as a slice of the *live channel's* catch-up/restart buffer instead (a
 `master-archive.m3u8?startTime=...&endTime=...` URL). v0.1.6 rejected only an
 implausibly wide window from this style of resource (one observed case: a full
 6-hour block instead of the ~14-minute episode) - but a correctly-sized one
@@ -218,6 +219,19 @@ that DR has already packaged as a proper file - matching what every other
 episode already uses. In practice this means a brand new episode may not be
 playable for the first few minutes after publishing; the previous one plays
 instead until DR finishes repackaging it.
+
+v0.1.7's fallback logic was verified correct in isolation
+(`tools/test-vod-fallback.pl`), but a real server log showed it stopping after
+exactly one rejection on three separate occasions - never falling through to
+an older episode, and never logging why. The most plausible explanation:
+each fallback attempt costs a full round trip to DR's `videos` endpoint, and
+several archive-only episodes in a row (plausible on a busy news day) could
+add up to longer than LMS is willing to wait for a track to resolve, silently
+abandoning the attempt with nothing further logged. v0.1.8 bounds the fallback
+to 5 episodes and wraps the recursive retry in an `eval` so any unexpected
+failure is logged instead of silently ending the resolution - independent of
+whether that theory is the exact cause, both changes are cheap insurance
+against it.
 
 **On-demand shows (TVA) show a progress bar but can't be scrubbed**
 
@@ -233,14 +247,12 @@ a 24/7 live stream doesn't make sense.
 
 ## Status
 
-v0.1.7 — works for the three default channels and the TVA on-demand show;
+v0.1.8 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
 live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The
 on-demand progress bar shows the episode's real length, and a live-channel
 "archive" resource for a just-published episode is declined outright in favour
-of the next-newest properly-packaged episode (see Troubleshooting). Still
-open: a rare premature stop a few minutes into some on-demand playback, not yet
-reproduced with debug logs (tracked at
-https://github.com/NikolajChristensen/lyrion-drlive/issues/1). Not yet done: a
-settings page, now‑playing EPG text, DR radio (P1–P8), and actual seeking on
-on-demand content (see Troubleshooting).
+of the next-newest properly-packaged episode, with the fallback now bounded
+and exception-safe (see Troubleshooting). Not yet done: a settings page,
+now‑playing EPG text, DR radio (P1–P8), and actual seeking on on-demand
+content (see Troubleshooting).

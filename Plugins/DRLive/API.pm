@@ -240,11 +240,21 @@ sub _fetchSeasonEpisode {
 	)->get(sprintf(ITEM_URL, $seasonId), 'Authorization' => "Bearer $token");
 }
 
+# Each fallback attempt costs a full round trip to DR's videos endpoint. On a
+# busy news day, several episodes in a row can be archive-only at once, and
+# there is no way to know from here how long LMS is willing to wait for a
+# track to resolve before giving up on the whole attempt - a long chain of
+# sequential round trips silently exceeding that timeout would look exactly
+# like a single failed attempt with nothing further logged. Capping this is
+# cheap insurance against that, independent of whether it is the real cause.
+use constant MAX_EPISODE_ATTEMPTS => 5;
+
 # Tries episodes newest-first, falling through to the next one if the newest
 # has no usable resource yet - see HLS::is_archive_url for why that happens
 # and why we don't just use what DR offers in the meantime.
 sub _tryEpisodes {
-	my ($class, $showId, $episodes, $token, $cb) = @_;
+	my ($class, $showId, $episodes, $token, $cb, $attempt) = @_;
+	$attempt ||= 1;
 
 	my $episode = shift @$episodes;
 	unless ($episode) {
@@ -252,11 +262,26 @@ sub _tryEpisodes {
 		return $cb->(undef);
 	}
 
+	if ($attempt > MAX_EPISODE_ATTEMPTS) {
+		$log->warn("DRLive: gave up on show $showId after " . MAX_EPISODE_ATTEMPTS . ' episodes with no usable resource');
+		return $cb->(undef);
+	}
+
 	$class->_resolveEpisodeVideo($showId, $episode, $token, sub {
 		my $info = shift;
 		return $cb->($info) if $info;
-		# _resolveEpisodeVideo already logged why; fall back to the next one.
-		$class->_tryEpisodes($showId, $episodes, $token, $cb);
+
+		# _resolveEpisodeVideo already logged why. An exception here (from
+		# LMS's own networking code, not ours - see tools/test-vod-fallback.pl,
+		# which proves this recursion is correct in isolation) must surface
+		# loudly rather than silently end the whole resolution.
+		eval {
+			$class->_tryEpisodes($showId, $episodes, $token, $cb, $attempt + 1);
+			1;
+		} or do {
+			$log->error("DRLive: exception while trying the next episode for show $showId: $@");
+			$cb->(undef);
+		};
 	});
 }
 

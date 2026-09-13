@@ -165,6 +165,7 @@ perl tools/test-variant.pl      # unit test for the playlist-parsing helpers
 perl tools/test-logo.pl         # unit test for the logo-URL rewriting
 perl tools/test-vod-fallback.pl # unit test for the on-demand episode-fallback chain
 perl tools/test-seek.pl         # unit test for getSeekData's return shape
+perl tools/test-convert-conf.pl # validates capability lines against LMS's actual parsing grammar
 tools/test-compile.sh        # compile + load every module against stubbed Slim::* classes
 tools/test-resolve.sh [id]   # end-to-end: token → item → variant → ffmpeg (needs curl, python3, ffmpeg)
 ```
@@ -267,14 +268,30 @@ If a seek or resume genuinely misbehaves rather than just doing nothing, the
 `plugin.drlive` DEBUG log (`DRLive: VOD show ... stream -> ...`) shows the
 resolved URL ffmpeg is asked to seek within, which is the first thing to check.
 
+**v0.1.9 shipped with a broken `drvod` capability line, breaking ALL on-demand
+playback (not just seeking) - fixed in v0.1.10.** `custom-convert.conf`'s
+grammar for combining capability letters requires them to run together with no
+space (`RT:{START=...}`, matching LMS's stock profiles like
+`IFT:{START=...}U:{END=...}`); v0.1.9 shipped `R T:{START=-ss %s}` with a
+space, which LMS's parser rejects outright at startup
+(`Slim::Player::TranscodingHelper::_getCapabilities: syntax error in ...`),
+leaving `drvod` with no working transcoder profile at all - every play attempt
+failed with the generic "Couldn't create command line for drvod playback"
+error, regardless of whether a seek was involved. This was checked against
+*working examples* before shipping, not against LMS's actual parsing regex -
+`tools/test-convert-conf.pl` now validates every capability line in this file
+against that exact regex, so this class of mistake can't ship silently again.
+
 ## Status
 
-v0.1.9 — works for the three default channels and the TVA on-demand show;
+v0.1.10 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
 live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The
 on-demand progress bar shows the episode's real length, and a live-channel
 "archive" resource for a just-published episode is declined outright in favour
 of the next-newest properly-packaged episode, with the fallback bounded and
-exception-safe. On-demand seeking and pause/resume are new and unverified
-against a running server (see Troubleshooting). Not yet done: a settings page,
-now‑playing EPG text, DR radio (P1–P8).
+exception-safe. On-demand seeking and pause/resume are new (see
+Troubleshooting) - the config syntax is now verified against LMS's actual
+parsing grammar, but the `getSeekData` behaviour itself is still unverified
+against a running server. Not yet done: a settings page, now‑playing EPG text,
+DR radio (P1–P8).

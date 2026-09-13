@@ -284,6 +284,18 @@ against that exact regex, so this class of mistake can't ship silently again.
 
 ## Status
 
+v0.1.11 — adds logging inside `getSeekData` (info-level, `plugin.drlive`), so
+a seek/resume leaves a trace even though it doesn't re-run `getNextTrack`
+(nothing else logs it). Local testing confirms the exact shipped ffmpeg
+command (`-ss <offset>` plus the reconnect flags) decodes 30 continuous,
+gap-free seconds from a seek point with no errors - so a real seeking problem
+reported after this version is happening somewhere in LMS's own construction
+or handling of the transcode, not in ffmpeg itself. To see the actual
+constructed command line LMS hands to ffmpeg, separately raise the **built-in**
+`player.source` category to INFO under `Settings → Advanced → Logging` (this
+is not a DRLive setting) and look for a line starting `Tokenized command:`
+after attempting a seek.
+
 v0.1.10 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
 live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The

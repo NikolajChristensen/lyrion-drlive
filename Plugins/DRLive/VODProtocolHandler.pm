@@ -52,6 +52,13 @@ sub getFormatForURL { 'drvod' }
 # original getNextTrack call and is not re-fetched here.
 sub getSeekData {
 	my ($class, $client, $song, $newtime) = @_;
+	# Nothing else logs a seek/resume - getNextTrack (and its "stream ->" log
+	# line) does not run again for one, since $song->streamUrl() is already
+	# resolved. Without this, a misbehaving seek leaves no trace of whether it
+	# was even attempted, let alone with what offset - info-level (not warn),
+	# matching the rest of this file: an ordinary seek is not an anomaly, and
+	# this fires on every one.
+	main::INFOLOG && $log->is_info && $log->info("DRLive: seek requested for " . $song->currentTrack()->url . " -> ${newtime}s");
 	return { timeOffset => $newtime };
 }
 

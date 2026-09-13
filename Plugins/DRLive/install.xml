@@ -3,7 +3,7 @@
 	<id>8f1a9667-48a2-4f8c-934f-5dac353c3749</id>
 	<name>PLUGIN_DRLIVE</name>
 	<module>Plugins::DRLive::Plugin</module>
-	<version>0.1.10</version>
+	<version>0.1.11</version>
 	<description>PLUGIN_DRLIVE_DESC</description>
 	<creator>NikolajChristensen</creator>
 	<category>radio</category>

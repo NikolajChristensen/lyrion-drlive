@@ -28,6 +28,7 @@ echo "==> tests"
 perl tools/test-variant.pl
 perl tools/test-logo.pl
 perl tools/test-vod-fallback.pl
+perl tools/test-seek.pl
 ./tools/test-compile.sh
 
 echo "==> version -> $VERSION"

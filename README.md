@@ -121,29 +121,36 @@ drlive://20876                              drvod://358871
    │     ├─ API: items/20876                    │     ├─ API: items/358871 (show)
    │     │     → customFields.hlsURL,           │     │     → seasons.items[0].id
    │     │       title, logo                    │     ├─ API: items/<seasonId>
-   │     └─ fetch master.m3u8                   │     │     → episodes.items[0] where
-   │           → HLS.lowest_variant()           │     │       an offer is "Available"
-   │           (lowest-BANDWIDTH variant)        │     ├─ API: account/items/<id>/videos
-   │                                             │     │     → first resource with
-   │                                             │     │       drm == "None"
+   │     └─ fetch master.m3u8                   │     │     → episodes.items[], newest-first,
+   │           → HLS.lowest_variant()           │     │       tries each "Available" one until
+   │           (lowest-BANDWIDTH variant)        │     │       one has a usable resource (max 5)
+   │                                             │     ├─ API: account/items/<id>/videos
+   │                                             │     │     → first resource with drm=="None"
+   │                                             │     │       that isn't a live-channel
+   │                                             │     │       "archive" URL
    │                                             │     └─ fetch master.m3u8
    │                                             │           → HLS.audio_variant()
    │                                             │           (pure audio-only rendition,
    │                                             │            falling back to
    │                                             │            HLS.lowest_variant())
    │                                             │
-   └─ getFormatForURL → "drlive"                 └─ getFormatForURL → "drlive"
-         └─ custom-convert.conf:  drlive → flc   [ffmpeg -i $URL$ -vn -c:a flac -f flac -]
+   └─ getFormatForURL → "drlive"                 └─ getFormatForURL → "drvod"
+         └─ custom-convert.conf:                       └─ custom-convert.conf:
+            drlive → flc [ffmpeg -i $URL$ ...]             drvod → flc [ffmpeg $START$ -i $URL$ ...]
+                                                            ($START$ → "-ss <secs>" on a seek/resume,
+                                                             empty - not just its value - otherwise)
 ```
 
 Both protocol handlers share `Plugins::DRLive::HLS` for master-playlist parsing
-and `Plugins::DRLive::API` for the anonymous token and all DR HTTP calls, and
-both end up handing ffmpeg a plain HLS URL - `drvod://` is a second URL scheme
-mapped to the *same* `drlive` content type (see `custom-types.conf`), so it
-reuses the existing `custom-convert.conf` profiles rather than needing its own.
+and `Plugins::DRLive::API` for the anonymous token and all DR HTTP calls, but
+`drvod://` has its **own** content type and `custom-convert.conf` profiles,
+separate from `drlive`'s - see the seeking section above for why: on-demand
+content is genuinely seekable and declares the `T` capability accordingly,
+which must never apply to the live channels.
 
-`custom-convert.conf` declares only the `R` (remote URL) capability so LMS hands
-the playlist URL to `ffmpeg` instead of trying to feed it through a socket.
+`custom-convert.conf`'s `drlive` profiles declare only `R` (remote URL, so LMS
+hands the playlist to `ffmpeg` instead of a socket); the `drvod` profiles
+declare `R` plus `T` (seek-to-start-time) for the reason above.
 
 If the catalogue API is unreachable, the live-channel handler falls back to a
 bundled static URL per channel. The on-demand handler has no such fallback - a
@@ -157,6 +164,7 @@ than playing something wrong.
 perl tools/test-variant.pl      # unit test for the playlist-parsing helpers
 perl tools/test-logo.pl         # unit test for the logo-URL rewriting
 perl tools/test-vod-fallback.pl # unit test for the on-demand episode-fallback chain
+perl tools/test-seek.pl         # unit test for getSeekData's return shape
 tools/test-compile.sh        # compile + load every module against stubbed Slim::* classes
 tools/test-resolve.sh [id]   # end-to-end: token → item → variant → ffmpeg (needs curl, python3, ffmpeg)
 ```
@@ -233,26 +241,40 @@ failure is logged instead of silently ending the resolution - independent of
 whether that theory is the exact cause, both changes are cheap insurance
 against it.
 
-**On-demand shows (TVA) show a progress bar but can't be scrubbed**
+**Seeking and pause/resume on TVA (v0.1.9) - EXPERIMENTAL, unverified against a real server**
 
-Expected for now. LMS gets total duration from a database attribute
-(`Slim::Music::Info::setDuration`), which the plugin sets from DR's own episode
-metadata - that's a straightforward lookup, and the progress bar reflects it.
-Actual seeking is a different mechanism: for a transcoded remote stream, LMS
-restarts the ffmpeg process at a new `-ss` offset, which requires a dedicated
-`custom-convert.conf` profile declaring the `T` capability plus a protocol-level
-`getSeekData` implementation. Deliberately not done yet - it would need to live
-on a content type separate from the live channels, since offering a scrubber on
-a 24/7 live stream doesn't make sense.
+On-demand shows now declare their own content type (`drvod`, separate from the
+live channels' `drlive`) with `custom-convert.conf` profiles that add the `T`
+(seek-to-start-time) capability, plus a `getSeekData` implementation, so LMS
+can restart ffmpeg's transcode at a specific offset instead of always from the
+beginning. Pausing appears to close the underlying stream and resuming re-opens
+it - the same mechanism LMS uses for an explicit seek - so this should fix both
+scrubbing and resume-after-a-long-pause together, not as two separate features.
+
+Both the `custom-convert.conf` syntax and `getSeekData`'s return shape were
+built by tracing LMS's own source (`Slim::Player::TranscodingHelper`,
+`Slim::Player::Song`) rather than copying a working example, and confirmed
+against **stock LMS profiles that use the identical pattern** (e.g. the
+built-in flac/faad profiles' `T:{START=--skip=%t}` style) - but neither piece
+has been exercised end to end against a running server yet. If seeking
+misbehaves, ordinary playback (starting an episode with no seek) is unaffected
+by this change: the `%s` placeholder that becomes ffmpeg's `-ss` value is
+wrapped so it disappears as a complete unit, flag included, whenever no seek
+was requested - it cannot corrupt the command line for a normal play the way a
+bare `-ss %s` would if `%s` substituted to nothing.
+
+If a seek or resume genuinely misbehaves rather than just doing nothing, the
+`plugin.drlive` DEBUG log (`DRLive: VOD show ... stream -> ...`) shows the
+resolved URL ffmpeg is asked to seek within, which is the first thing to check.
 
 ## Status
 
-v0.1.8 — works for the three default channels and the TVA on-demand show;
+v0.1.9 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
 live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The
 on-demand progress bar shows the episode's real length, and a live-channel
 "archive" resource for a just-published episode is declined outright in favour
-of the next-newest properly-packaged episode, with the fallback now bounded
-and exception-safe (see Troubleshooting). Not yet done: a settings page,
-now‑playing EPG text, DR radio (P1–P8), and actual seeking on on-demand
-content (see Troubleshooting).
+of the next-newest properly-packaged episode, with the fallback bounded and
+exception-safe. On-demand seeking and pause/resume are new and unverified
+against a running server (see Troubleshooting). Not yet done: a settings page,
+now‑playing EPG text, DR radio (P1–P8).

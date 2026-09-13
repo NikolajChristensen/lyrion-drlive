@@ -4,13 +4,13 @@
 		<title lang="EN">DRLive Plugin Repository</title>
 	</details>
 	<plugins>
-		<plugin name="DRLive" version="0.1.8" minTarget="8.0" maxTarget="*">
+		<plugin name="DRLive" version="0.1.9" minTarget="8.0" maxTarget="*">
 			<title lang="EN">DR Live</title>
 			<desc lang="EN">Play the audio of DR's live TV channels (DR1, DR2, DR Ramasjang) on Lyrion players.</desc>
 			<category>radio</category>
 			<!-- Packaged plugin, attached to the matching GitHub release. -->
-			<url>https://github.com/NikolajChristensen/lyrion-drlive/releases/download/v0.1.8/DRLive-0.1.8.zip</url>
-			<sha>1f0ea91e8d92c07fea87b646d64780c851631685</sha>
+			<url>https://github.com/NikolajChristensen/lyrion-drlive/releases/download/v0.1.9/DRLive-0.1.9.zip</url>
+			<sha>030bdd5947d8b631bbba8aabdef09b36b95ec28f</sha>
 			<link>https://github.com/NikolajChristensen/lyrion-drlive</link>
 			<creator>NikolajChristensen</creator>
 		</plugin>

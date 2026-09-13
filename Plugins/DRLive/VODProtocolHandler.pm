@@ -6,9 +6,19 @@ package Plugins::DRLive::VODProtocolHandler;
 # resolution logic itself is generic to any dr-massive show id.
 #
 # Unlike drlive:// (a live channel that loops forever), this is a finite VOD
-# clip: no repeat, and playback ends normally when the clip does. It shares
-# the drlive-*-*-* ffmpeg profiles in custom-convert.conf - see getFormatForURL
-# below and the matching line in custom-types.conf.
+# clip: no repeat, and playback ends normally when the clip does. DR ships it
+# as a genuinely seekable file, so - unlike drlive:// - it has its own content
+# type (drvod, see custom-types.conf) with custom-convert.conf profiles
+# declaring the "T" (seek-to-start-time) capability, plus getSeekData below.
+#
+# Deliberately NOT overriding canSeek: the inherited default (from
+# Slim::Player::Protocols::HTTP) does byte-offset math for a directly-streamed
+# file, which does not apply here (canDirectStream => 0) and correctly returns
+# false since no bitrate is known at the handler level. Seekability instead
+# comes from Slim::Player::Song's own, separate check for a convert.conf
+# profile declaring "T" for this content type - forcing canSeek to true here
+# would make LMS treat this as the byte-offset kind of seek instead, which
+# getSeekData below does not implement.
 
 use strict;
 use warnings;
@@ -27,15 +37,23 @@ my $log = logger('plugin.drlive');
 
 sub isRemote           { 1 }
 sub canDirectStream    { 0 }
-sub canSeek            { 0 }
 sub isRepeatingStream  { 0 }
 sub audioScrobblerSource { }
 
-# Reuses the "drlive" content type - see custom-types.conf - so the existing
-# drlive-flc/mp3/pcm-*-* profiles in custom-convert.conf apply here too. There
-# is nothing live-specific about those profiles: "(R)" + a plain ffmpeg command
-# line, which is exactly what a VOD manifest also needs.
-sub getFormatForURL { 'drlive' }
+sub getFormatForURL { 'drvod' }
+
+# Called by Slim::Player::Song::getSeekData for both an explicit seek and a
+# resume-after-pause (LMS closes the stream on pause, then re-opens it at the
+# elapsed position on resume - the same mechanism as a user-initiated seek).
+# The returned 'timeOffset' flows through to the "T" capability's %s
+# substitution in custom-convert.conf, becoming ffmpeg's -ss argument -
+# ffmpeg then fast-seeks within the HLS manifest to that position rather than
+# decoding from the start. $song->streamUrl() is already resolved from the
+# original getNextTrack call and is not re-fetched here.
+sub getSeekData {
+	my ($class, $client, $song, $newtime) = @_;
+	return { timeOffset => $newtime };
+}
 
 sub scanUrl {
 	my ($class, $url, $args) = @_;

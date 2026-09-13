@@ -6,19 +6,25 @@ package Plugins::DRLive::VODProtocolHandler;
 # resolution logic itself is generic to any dr-massive show id.
 #
 # Unlike drlive:// (a live channel that loops forever), this is a finite VOD
-# clip: no repeat, and playback ends normally when the clip does. DR ships it
-# as a genuinely seekable file, so - unlike drlive:// - it has its own content
-# type (drvod, see custom-types.conf) with custom-convert.conf profiles
-# declaring the "T" (seek-to-start-time) capability, plus getSeekData below.
+# clip: no repeat, and playback ends normally when the clip does. It has its
+# own content type (drvod, see custom-types.conf) separate from drlive's,
+# but - deliberately - the SAME "R"-only capability (see custom-convert.conf).
 #
-# Deliberately NOT overriding canSeek: the inherited default (from
-# Slim::Player::Protocols::HTTP) does byte-offset math for a directly-streamed
-# file, which does not apply here (canDirectStream => 0) and correctly returns
-# false since no bitrate is known at the handler level. Seekability instead
-# comes from Slim::Player::Song's own, separate check for a convert.conf
-# profile declaring "T" for this content type - forcing canSeek to true here
-# would make LMS treat this as the byte-offset kind of seek instead, which
-# getSeekData below does not implement.
+# Seeking (a "T" capability profile + getSeekData) was attempted in
+# v0.1.9-v0.1.11 and reverted: live testing (real server.log, both a 4-player
+# sync group and a single isolated player) showed a seek-triggered reopen
+# reliably making LMS's OWN pipe-reading code (Slim::Player::Source::
+# _readNextChunk) report "end of file or error on socket" about a second in,
+# even though the identical ffmpeg command - same URL, same -ss offset, same
+# reconnect flags - decoded the entire rest of the episode with zero errors
+# when run directly, outside LMS. The seek value, getSeekData's return shape,
+# canSeek's type (2 = transcoder-based, confirmed via LMS's own "seek=true
+# time=... canSeek=2" log line), and the constructed command line were all
+# independently confirmed correct. That combination of evidence points at a
+# bug in LMS's own core handling of a seek on an "R" (remote-fed) transcoded
+# stream, not in this plugin's code, ffmpeg, or the DR content, and it is not
+# something fixable from a plugin. See the README's Troubleshooting section
+# before re-attempting this.
 
 use strict;
 use warnings;
@@ -42,25 +48,9 @@ sub audioScrobblerSource { }
 
 sub getFormatForURL { 'drvod' }
 
-# Called by Slim::Player::Song::getSeekData for both an explicit seek and a
-# resume-after-pause (LMS closes the stream on pause, then re-opens it at the
-# elapsed position on resume - the same mechanism as a user-initiated seek).
-# The returned 'timeOffset' flows through to the "T" capability's %s
-# substitution in custom-convert.conf, becoming ffmpeg's -ss argument -
-# ffmpeg then fast-seeks within the HLS manifest to that position rather than
-# decoding from the start. $song->streamUrl() is already resolved from the
-# original getNextTrack call and is not re-fetched here.
-sub getSeekData {
-	my ($class, $client, $song, $newtime) = @_;
-	# Nothing else logs a seek/resume - getNextTrack (and its "stream ->" log
-	# line) does not run again for one, since $song->streamUrl() is already
-	# resolved. Without this, a misbehaving seek leaves no trace of whether it
-	# was even attempted, let alone with what offset - info-level (not warn),
-	# matching the rest of this file: an ordinary seek is not an anomaly, and
-	# this fires on every one.
-	main::INFOLOG && $log->is_info && $log->info("DRLive: seek requested for " . $song->currentTrack()->url . " -> ${newtime}s");
-	return { timeOffset => $newtime };
-}
+# No getSeekData: without a "T" capability profile in custom-convert.conf,
+# Slim::Player::Song's own capability check never reports this seekable, so
+# LMS never calls it - see the header comment for why seeking was reverted.
 
 sub scanUrl {
 	my ($class, $url, $args) = @_;

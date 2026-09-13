@@ -28,7 +28,6 @@ echo "==> tests"
 perl tools/test-variant.pl
 perl tools/test-logo.pl
 perl tools/test-vod-fallback.pl
-perl tools/test-seek.pl
 perl tools/test-convert-conf.pl
 ./tools/test-compile.sh
 

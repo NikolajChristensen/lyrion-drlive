@@ -136,21 +136,17 @@ drlive://20876                              drvod://358871
    │                                             │
    └─ getFormatForURL → "drlive"                 └─ getFormatForURL → "drvod"
          └─ custom-convert.conf:                       └─ custom-convert.conf:
-            drlive → flc [ffmpeg -i $URL$ ...]             drvod → flc [ffmpeg $START$ -i $URL$ ...]
-                                                            ($START$ → "-ss <secs>" on a seek/resume,
-                                                             empty - not just its value - otherwise)
+            drlive → flc [ffmpeg -i $URL$ ...]             drvod → flc [ffmpeg -i $URL$ ...]
 ```
 
 Both protocol handlers share `Plugins::DRLive::HLS` for master-playlist parsing
-and `Plugins::DRLive::API` for the anonymous token and all DR HTTP calls, but
-`drvod://` has its **own** content type and `custom-convert.conf` profiles,
-separate from `drlive`'s - see the seeking section above for why: on-demand
-content is genuinely seekable and declares the `T` capability accordingly,
-which must never apply to the live channels.
-
-`custom-convert.conf`'s `drlive` profiles declare only `R` (remote URL, so LMS
-hands the playlist to `ffmpeg` instead of a socket); the `drvod` profiles
-declare `R` plus `T` (seek-to-start-time) for the reason above.
+and `Plugins::DRLive::API` for the anonymous token and all DR HTTP calls.
+`drvod://` has its own content type, separate from `drlive`'s, purely to keep
+the two independently configurable - both currently declare the identical `R`
+(remote URL, so LMS hands the playlist to `ffmpeg` instead of a socket)
+capability and nothing else. `drvod` briefly also declared `T`
+(seek-to-start-time); see the Troubleshooting section for why that was
+reverted.
 
 If the catalogue API is unreachable, the live-channel handler falls back to a
 bundled static URL per channel. The on-demand handler has no such fallback - a
@@ -164,7 +160,6 @@ than playing something wrong.
 perl tools/test-variant.pl      # unit test for the playlist-parsing helpers
 perl tools/test-logo.pl         # unit test for the logo-URL rewriting
 perl tools/test-vod-fallback.pl # unit test for the on-demand episode-fallback chain
-perl tools/test-seek.pl         # unit test for getSeekData's return shape
 perl tools/test-convert-conf.pl # validates capability lines against LMS's actual parsing grammar
 tools/test-compile.sh        # compile + load every module against stubbed Slim::* classes
 tools/test-resolve.sh [id]   # end-to-end: token → item → variant → ffmpeg (needs curl, python3, ffmpeg)
@@ -242,68 +237,62 @@ failure is logged instead of silently ending the resolution - independent of
 whether that theory is the exact cause, both changes are cheap insurance
 against it.
 
-**Seeking and pause/resume on TVA (v0.1.9) - EXPERIMENTAL, unverified against a real server**
+**Seeking and pause/resume on TVA do not work, and are not implemented (tried and reverted in v0.1.9-v0.1.12)**
 
-On-demand shows now declare their own content type (`drvod`, separate from the
-live channels' `drlive`) with `custom-convert.conf` profiles that add the `T`
-(seek-to-start-time) capability, plus a `getSeekData` implementation, so LMS
-can restart ffmpeg's transcode at a specific offset instead of always from the
-beginning. Pausing appears to close the underlying stream and resuming re-opens
-it - the same mechanism LMS uses for an explicit seek - so this should fix both
-scrubbing and resume-after-a-long-pause together, not as two separate features.
+The on-demand progress bar shows the correct total length, but cannot be
+scrubbed, and pausing for a while then resuming restarts the episode from the
+beginning rather than continuing. This is a deliberate, known limitation, not
+an oversight - a working implementation was built, shipped, and reverted after
+live testing pointed at a bug in LMS's own core rather than anything in this
+plugin. The full story, in case anyone picks this up again later:
 
-Both the `custom-convert.conf` syntax and `getSeekData`'s return shape were
-built by tracing LMS's own source (`Slim::Player::TranscodingHelper`,
-`Slim::Player::Song`) rather than copying a working example, and confirmed
-against **stock LMS profiles that use the identical pattern** (e.g. the
-built-in flac/faad profiles' `T:{START=--skip=%t}` style) - but neither piece
-has been exercised end to end against a running server yet. If seeking
-misbehaves, ordinary playback (starting an episode with no seek) is unaffected
-by this change: the `%s` placeholder that becomes ffmpeg's `-ss` value is
-wrapped so it disappears as a complete unit, flag included, whenever no seek
-was requested - it cannot corrupt the command line for a normal play the way a
-bare `-ss %s` would if `%s` substituted to nothing.
-
-If a seek or resume genuinely misbehaves rather than just doing nothing, the
-`plugin.drlive` DEBUG log (`DRLive: VOD show ... stream -> ...`) shows the
-resolved URL ffmpeg is asked to seek within, which is the first thing to check.
-
-**v0.1.9 shipped with a broken `drvod` capability line, breaking ALL on-demand
-playback (not just seeking) - fixed in v0.1.10.** `custom-convert.conf`'s
-grammar for combining capability letters requires them to run together with no
-space (`RT:{START=...}`, matching LMS's stock profiles like
-`IFT:{START=...}U:{END=...}`); v0.1.9 shipped `R T:{START=-ss %s}` with a
-space, which LMS's parser rejects outright at startup
-(`Slim::Player::TranscodingHelper::_getCapabilities: syntax error in ...`),
-leaving `drvod` with no working transcoder profile at all - every play attempt
-failed with the generic "Couldn't create command line for drvod playback"
-error, regardless of whether a seek was involved. This was checked against
-*working examples* before shipping, not against LMS's actual parsing regex -
-`tools/test-convert-conf.pl` now validates every capability line in this file
-against that exact regex, so this class of mistake can't ship silently again.
+- v0.1.9 added a `T` (seek-to-start-time) capability to a new `drvod` content
+  type, plus a `getSeekData` implementation, following the exact pattern
+  LMS's own stock `convert.conf` uses for this (e.g. the built-in flac/faad
+  profiles' `T:{START=--skip=%t}` style). It shipped with a capability-line
+  syntax error (`R T:{START=-ss %s}` - LMS requires capability letters to run
+  together with **no space**, `RT:{START=...}`) that broke *all* on-demand
+  playback, not just seeking, because it left `drvod` with no working
+  transcoder profile at all.
+- v0.1.10 fixed the syntax (confirmed against LMS's actual parsing regex, not
+  just working examples this time) and restored normal playback.
+  `tools/test-convert-conf.pl` now validates every capability line in
+  `custom-convert.conf` against that regex, so this exact mistake can't ship
+  silently again.
+- v0.1.11 added logging inside `getSeekData`, since nothing else logs a seek
+  (it doesn't re-run `getNextTrack`, the only place that already logged
+  anything).
+- With logging in place, live testing on a real server showed: `getSeekData`
+  fires correctly, `canSeek=2` (the transcoder-based path, not the
+  byte-offset one), the constructed command line correctly includes
+  `-ss <offset>` - all confirmed via LMS's own `server.log` (raise the
+  built-in `player.source` category to INFO to see the `Tokenized command:`
+  line yourself). And yet, about a second after a seek-triggered reopen,
+  LMS's own pipe-reading code
+  (`Slim::Player::Source::_readNextChunk`) logged
+  `end of file or error on socket`, causing either a stop (single player) or
+  a repeating restart loop (players synced together - ruled out as the root
+  cause, since a single isolated player failed too, just differently). The
+  exact same command - same URL, same `-ss` offset, same reconnect flags -
+  decoded the **entire rest of the episode with zero errors** when run
+  directly outside LMS. That combination - correct inputs confirmed at every
+  step, ffmpeg provably fine in isolation, failure specifically inside LMS's
+  own pipe-reading code right after a seek-triggered reopen of an `R`
+  (remote-fed) transcoded stream - points at a bug or limitation in LMS's
+  core handling of that specific combination, not at anything this plugin
+  controls.
+- v0.1.12 reverted the `T` capability and `getSeekData`, back to the
+  known-reliable `R`-only profile every other stream here uses.
 
 ## Status
 
-v0.1.11 — adds logging inside `getSeekData` (info-level, `plugin.drlive`), so
-a seek/resume leaves a trace even though it doesn't re-run `getNextTrack`
-(nothing else logs it). Local testing confirms the exact shipped ffmpeg
-command (`-ss <offset>` plus the reconnect flags) decodes 30 continuous,
-gap-free seconds from a seek point with no errors - so a real seeking problem
-reported after this version is happening somewhere in LMS's own construction
-or handling of the transcode, not in ffmpeg itself. To see the actual
-constructed command line LMS hands to ffmpeg, separately raise the **built-in**
-`player.source` category to INFO under `Settings → Advanced → Logging` (this
-is not a DRLive setting) and look for a line starting `Tokenized command:`
-after attempting a seek.
-
-v0.1.10 — works for the three default channels and the TVA on-demand show;
+v0.1.12 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
 live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The
 on-demand progress bar shows the episode's real length, and a live-channel
 "archive" resource for a just-published episode is declined outright in favour
 of the next-newest properly-packaged episode, with the fallback bounded and
-exception-safe. On-demand seeking and pause/resume are new (see
-Troubleshooting) - the config syntax is now verified against LMS's actual
-parsing grammar, but the `getSeekData` behaviour itself is still unverified
-against a running server. Not yet done: a settings page, now‑playing EPG text,
-DR radio (P1–P8).
+exception-safe. Seeking and pause/resume on TVA were attempted and reverted
+after live testing pointed at an LMS-core bug, not a bug here (see
+Troubleshooting). Not yet done: a settings page, now‑playing EPG text, DR
+radio (P1–P8).

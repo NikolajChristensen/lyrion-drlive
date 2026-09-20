@@ -144,4 +144,87 @@ if (!Plugins::DRLive::HLS::is_archive_url(undef)) {
 	print "FAIL - is_archive_url: undef should not be flagged as an archive URL\n";
 }
 
+# --- byterange_file: DR's on-demand packaging (one .mp4, byterange segments) ---
+
+my $vodBase = 'https://drod21a.akamaized.net/all/clear/none/91/x/00122613630/stream_fmp4/audio_192kbps.m3u8';
+
+# Shape taken from a real TVA episode manifest.
+my $byterange = <<'M3U8';
+#EXTM3U
+#EXT-X-VERSION:6
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXT-X-TARGETDURATION:10
+#EXT-X-MAP:URI="audio_192kbps.mp4",BYTERANGE="748@0"
+#EXTINF:10.005333,
+#EXT-X-BYTERANGE:242354@1688
+audio_192kbps.mp4
+#EXTINF:10.005333,
+#EXT-X-BYTERANGE:241940@244042
+audio_192kbps.mp4
+#EXT-X-ENDLIST
+M3U8
+
+is(Plugins::DRLive::HLS::byterange_file($byterange, $vodBase),
+   'https://drod21a.akamaized.net/all/clear/none/91/x/00122613630/stream_fmp4/audio_192kbps.mp4',
+   'byterange_file: single-file byterange VOD playlist resolves to the .mp4');
+
+# An ordinary multi-segment VOD playlist must be left alone.
+my $plainVod = <<'M3U8';
+#EXTM3U
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:10.0,
+seg1.ts
+#EXTINF:10.0,
+seg2.ts
+#EXT-X-ENDLIST
+M3U8
+
+is_undef(Plugins::DRLive::HLS::byterange_file($plainVod, $vodBase),
+   'byterange_file: ordinary multi-segment playlist is left alone');
+
+# A live playlist must never be collapsed to a fixed file, even if some
+# publisher were to use byteranges: its segment list keeps growing.
+my $live = <<'M3U8';
+#EXTM3U
+#EXT-X-MEDIA-SEQUENCE:99
+#EXTINF:10.0,
+#EXT-X-BYTERANGE:242354@1688
+live.mp4
+M3U8
+
+is_undef(Plugins::DRLive::HLS::byterange_file($live, $vodBase),
+   'byterange_file: live playlist (no ENDLIST/VOD) is refused');
+
+# VOD, single file, but no byteranges at all - not the packaging we work around.
+my $noRange = <<'M3U8';
+#EXTM3U
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:10.0,
+whole.mp4
+#EXT-X-ENDLIST
+M3U8
+
+is_undef(Plugins::DRLive::HLS::byterange_file($noRange, $vodBase),
+   'byterange_file: single file without byteranges is left alone');
+
+# Byterange over a single .ts with no #EXT-X-MAP - Apple's BipBop packaging.
+# ffmpeg handles this one correctly, so it must be left alone.
+my $tsByterange = <<'M3U8';
+#EXTM3U
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:10.0,
+#EXT-X-BYTERANGE:242354@1688
+main.ts
+#EXTINF:10.0,
+#EXT-X-BYTERANGE:241940@244042
+main.ts
+#EXT-X-ENDLIST
+M3U8
+
+is_undef(Plugins::DRLive::HLS::byterange_file($tsByterange, $vodBase),
+   'byterange_file: byterange TS without #EXT-X-MAP (BipBop-style) is left alone');
+
+is_undef(Plugins::DRLive::HLS::byterange_file(undef, $vodBase),
+   'byterange_file: undef content is refused');
+
 exit($ok ? 0 : 1);

@@ -92,6 +92,57 @@ sub is_archive_url {
 	return $url =~ /[?&]startTime=\d+/ && $url =~ /[?&]endTime=\d+/;
 }
 
+# DR packages its on-demand audio renditions as a "byterange playlist": every
+# #EXTINF segment points at the SAME single .mp4, distinguished only by an
+# #EXT-X-BYTERANGE offset, with the init segment declared via #EXT-X-MAP.
+#
+# ffmpeg's HLS demuxer does not walk that packaging correctly. Measured against
+# a real TVA episode (748s): fed the .m3u8 it fetches all 18MB of segment data
+# but demuxes only ~10s of audio and then exits 0, which downstream looks
+# exactly like a stream that simply ended - LMS reports it as "end of file or
+# error on socket". Fed the SAME bytes as the plain .mp4 URL, the identical
+# ffmpeg decodes the full 748s, and seeks within it frame-accurately.
+#
+# So when a media playlist is byterange-over-one-file, hand ffmpeg that file
+# directly and skip HLS entirely. Returns undef for anything else, including
+# ordinary multi-segment playlists and live ones - the #EXT-X-ENDLIST /
+# PLAYLIST-TYPE:VOD requirement below matters, because a live playlist's
+# segment list keeps growing and its bytes must be followed through the
+# manifest, not read once from a fixed file.
+sub byterange_file {
+	my ($content, $baseUrl) = @_;
+	return undef unless $content;
+
+	# Only ever for finished, on-demand content.
+	return undef unless $content =~ /^#EXT-X-ENDLIST/m
+		|| $content =~ /^#EXT-X-PLAYLIST-TYPE:VOD/mi;
+
+	# The packaging this works around is specifically byterange fMP4: segments
+	# addressed by byte offset into one file, with the init segment declared
+	# via #EXT-X-MAP. Requiring the #EXT-X-MAP matters - Apple's own BipBop
+	# sample is byterange-over-a-single-.ts and ffmpeg walks THAT correctly, so
+	# byteranges alone are not the trigger and a TS playlist must be left as it
+	# is rather than rewritten on a hunch.
+	return undef unless $content =~ /^#EXT-X-BYTERANGE:/m;
+	return undef unless $content =~ /^#EXT-X-MAP:/m;
+
+	my ($segments, $file) = (0, undef);
+
+	for my $line (split /
+?
+/, $content) {
+		next if $line =~ /^\s*$/ || $line =~ /^#/;
+		$line =~ s/^\s+|\s+$//g;
+		$segments++;
+		$file = $line unless defined $file;
+		# More than one distinct target: an ordinary playlist, leave it alone.
+		return undef unless $line eq $file;
+	}
+
+	return undef unless $segments && defined $file;
+	return abs_url($file, $baseUrl);
+}
+
 sub abs_url {
 	my ($ref, $base) = @_;
 	$ref =~ s/^\s+|\s+$//g;

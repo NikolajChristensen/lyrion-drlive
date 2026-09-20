@@ -100,9 +100,30 @@ sub getNextTrack {
 				my $variant = Plugins::DRLive::HLS::audio_variant($content, $master)
 					|| Plugins::DRLive::HLS::lowest_variant($content, $master)
 					|| $master;
-				$song->streamUrl($variant);
-				main::INFOLOG && $log->is_info && $log->info("DRLive: VOD show $showId stream -> $variant");
-				$successCb->();
+
+				# One more hop: DR's on-demand renditions are byterange
+				# playlists over a single .mp4, which ffmpeg's HLS demuxer
+				# truncates to a few seconds (see HLS::byterange_file). If this
+				# is one, stream that .mp4 directly instead. Any failure here
+				# just falls back to the variant playlist - the previous
+				# behaviour - rather than failing the whole resolve.
+				Slim::Networking::SimpleAsyncHTTP->new(
+					sub {
+						my $direct = Plugins::DRLive::HLS::byterange_file(shift->content, $variant);
+						$song->streamUrl($direct || $variant);
+						main::INFOLOG && $log->is_info && $log->info(
+							"DRLive: VOD show $showId stream -> " . ($direct || $variant)
+							. ($direct ? ' (byterange playlist, using the .mp4 directly)' : ''));
+						$successCb->();
+					},
+					sub {
+						my ($http, $error) = @_;
+						$log->warn("DRLive: variant playlist fetch failed ($error), using $variant");
+						$song->streamUrl($variant);
+						$successCb->();
+					},
+					{ timeout => 15 },
+				)->get($variant);
 			},
 			sub {
 				my ($http, $error) = @_;

@@ -41,6 +41,15 @@ use Plugins::DRLive::HLS;
 
 my $log = logger('plugin.drlive');
 
+# TEST BRANCH ONLY - not on main. When set, getNextTrack skips DR's catalogue
+# entirely and streams this URL instead, so the seek failure can be reproduced
+# against a public HLS VOD asset that is not geo-restricted to DK/EU and does
+# not expire. Apple's BipBop sample: EXT-X-PLAYLIST-TYPE:VOD, EXT-X-ENDLIST,
+# 1800s, so it is genuinely seekable in the same way a DR episode is. Set to
+# undef to go back to resolving the real show.
+my $TEST_VOD_URL      = 'https://devstreaming-cdn.apple.com/videos/streaming/examples/bipbop_16x9/gear1/prog_index.m3u8';
+my $TEST_VOD_DURATION = 1800;
+
 sub isRemote           { 1 }
 sub canDirectStream    { 0 }
 sub isRepeatingStream  { 0 }
@@ -48,9 +57,16 @@ sub audioScrobblerSource { }
 
 sub getFormatForURL { 'drvod' }
 
-# No getSeekData: without a "T" capability profile in custom-convert.conf,
-# Slim::Player::Song's own capability check never reports this seekable, so
-# LMS never calls it - see the header comment for why seeking was reverted.
+# TEST BRANCH ONLY - restored from v0.1.11 alongside the "T" capability in
+# custom-convert.conf, so a seek actually reaches LMS's transcoder path.
+sub getSeekData {
+	my ($class, $client, $song, $newtime) = @_;
+	# Nothing else logs a seek/resume - getNextTrack (and its "stream ->" log
+	# line) does not run again for one, since $song->streamUrl() is already
+	# resolved.
+	$log->warn("DRLive: seek requested for " . $song->currentTrack()->url . " -> ${newtime}s");
+	return { timeOffset => $newtime };
+}
 
 sub scanUrl {
 	my ($class, $url, $args) = @_;
@@ -65,6 +81,14 @@ sub getNextTrack {
 
 	unless ($showId) {
 		return $errorCb->("DRLive: malformed URL '$url'");
+	}
+
+	# TEST BRANCH ONLY - see $TEST_VOD_URL above.
+	if ($TEST_VOD_URL) {
+		Slim::Music::Info::setDuration($url, $TEST_VOD_DURATION);
+		$song->streamUrl($TEST_VOD_URL);
+		$log->warn("DRLive: TEST BUILD - streaming $TEST_VOD_URL instead of show $showId");
+		return $successCb->();
 	}
 
 	Plugins::DRLive::API->getLatestVod($showId, sub {

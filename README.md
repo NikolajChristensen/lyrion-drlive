@@ -237,61 +237,66 @@ failure is logged instead of silently ending the resolution - independent of
 whether that theory is the exact cause, both changes are cheap insurance
 against it.
 
-**Seeking and pause/resume on TVA do not work, and are not implemented (tried and reverted in v0.1.9-v0.1.12; root cause found in v0.1.15)**
+**Seeking and pause/resume on TVA: how they broke, and what they actually were**
 
-The on-demand progress bar shows the correct total length, but cannot be
-scrubbed, and pausing for a while then resuming restarts the episode from the
-beginning rather than continuing.
+Seeking works as of v0.1.16. It was attempted in v0.1.9-v0.1.11, reverted in
+v0.1.12 on a misdiagnosis, and re-enabled once the real cause was found. The
+investigation is recorded here because the wrong conclusion was convincing:
 
-For several versions this was believed to be a bug in Lyrion's own core - a
-seek on an `R` (remote-fed) transcoded stream reliably made
-`Slim::Player::Source::_readNextChunk` report `end of file or error on socket`
-about a second after the seek-triggered reopen, even though the exact ffmpeg
-command Lyrion had constructed decoded the rest of the episode cleanly when run
-by hand. That diagnosis was wrong, and the investigation that corrected it is
-worth recording:
-
-- A test build (v0.1.13) re-enabled the `T` capability but pointed `drvod://`
-  at Apple's public BipBop HLS VOD sample instead of DR. Seeking through
-  Lyrion worked perfectly. So Lyrion's `R`+`T` seek path is not broken, and
-  the problem had to be something about DR's own stream.
+- The symptom was that a seek (or a pause long enough to need a reopen) made
+  `Slim::Player::Source::_readNextChunk` report `end of file or error on
+  socket` about a second later, even though the exact ffmpeg command Lyrion
+  had constructed decoded the rest of the episode cleanly when run by hand.
+  Every intermediate step checked out: `getSeekData` fired, `canSeek=2`, and
+  the `-ss` offset in the `Tokenized command:` line was right. That pointed at
+  Lyrion's core, and a bug was filed against it.
+- It wasn't Lyrion. A test build (v0.1.13) kept the `RT:{START=-ss %s}`
+  profile but pointed `drvod://` at Apple's public BipBop HLS VOD sample
+  instead of DR. Seeking through Lyrion worked perfectly, which ruled out the
+  `R`+`T` path and moved the search to DR's own stream.
 - DR delivers its on-demand audio renditions as a *byterange playlist*: every
   `#EXTINF` segment points at the same single `.mp4`, distinguished only by an
   `#EXT-X-BYTERANGE` offset, with the init segment declared via `#EXT-X-MAP`.
   ffmpeg's HLS demuxer does not walk that packaging correctly. Measured on a
   real 748-second TVA episode: fed the `.m3u8`, ffmpeg fetched all 18MB of
-  segment data but demuxed only ~10 seconds of audio and then exited 0. Fed
-  the same bytes as the plain `.mp4` URL, the identical ffmpeg decoded the
-  full 748 seconds, and seeking into it with `-ss` was frame-accurate.
+  segment data but demuxed only ~10 seconds of audio and exited 0. Fed the
+  same bytes as the plain `.mp4` URL, the identical ffmpeg decoded the full
+  748 seconds, and `-ss 259.52` returned exactly the 488.68-second remainder,
+  frame-accurate.
 - Because ffmpeg exits 0, everything downstream sees a stream that simply
-  ended - which is exactly what Lyrion was faithfully reporting. The
-  `end of file or error on socket` message was a symptom, not the bug, and
-  seeking was never the trigger: the transcoder was stopping early either way.
-- Notably, byteranges alone are not the trigger. Apple's BipBop sample is also
+  ended. The `end of file or error on socket` was Lyrion reporting that
+  accurately - a symptom, not the bug. Seeking was never the trigger; it only
+  made the truncation obvious by forcing a reopen.
+- Byteranges alone are not the trigger. BipBop is also
   byterange-over-a-single-file, as MPEG-TS, and ffmpeg walks it correctly. The
   combination that breaks is byterange **fMP4** (`#EXT-X-MAP`).
 
-v0.1.15 acts on that: `Plugins::DRLive::HLS::byterange_file` detects this exact
-packaging - a finished (`#EXT-X-ENDLIST` / `PLAYLIST-TYPE:VOD`) byterange fMP4
-playlist over one file - and hands ffmpeg that `.mp4` directly, skipping HLS.
-Anything else, including ordinary multi-segment playlists, live playlists and
-byterange TS, is left exactly as it was.
+v0.1.15 acted on that: `Plugins::DRLive::HLS::byterange_file` detects this
+exact packaging - a finished (`#EXT-X-ENDLIST` / `PLAYLIST-TYPE:VOD`)
+byterange fMP4 playlist over one file - and hands ffmpeg that `.mp4` directly,
+skipping HLS. Ordinary multi-segment playlists, live playlists and byterange
+TS are all left exactly as they were. v0.1.16 then restored the `T` capability
+and `getSeekData` on top of that now-seekable `.mp4`.
 
-Seeking itself is still not enabled: the `drvod` profiles remain `R`-only. Now
-that the stream underneath is a plain, seekable `.mp4`, re-enabling the `T`
-capability is well-founded rather than a guess, but it should be re-tested on a
-real server before it ships again.
+One syntax trap worth repeating, since it cost a release on its own: LMS
+requires the capability letters to run together with no space -
+`RT:{START=-ss %s}`, not `R T:{START=-ss %s}`. v0.1.9 shipped the spaced form,
+which left `drvod` with no working transcoder profile at all and broke every
+on-demand stream, not just seeking. `tools/test-convert-conf.pl` validates
+every capability line against LMS's own parsing regex so that cannot ship
+silently again.
 
 ## Status
 
-v0.1.15 — works for the three default channels and the TVA on-demand show;
+v0.1.16 — works for the three default channels and the TVA on-demand show;
 resolution and playback verified end to end against the live API (both the
 live-channel and on-demand chains), and against a real Lyrion 9.1.1 server. The
 on-demand progress bar shows the episode's real length, and a live-channel
 "archive" resource for a just-published episode is declined outright in favour
 of the next-newest properly-packaged episode, with the fallback bounded and
 exception-safe. DR's on-demand renditions are byterange fMP4 playlists, which
-ffmpeg's HLS demuxer truncates to a few seconds, so they are now streamed as
-the underlying `.mp4` directly (see Troubleshooting). Seeking and pause/resume
-remain disabled, but are now understood rather than guessed at. Not yet done: a settings page, now‑playing EPG text, DR
+ffmpeg's HLS demuxer truncates, so they are streamed as the underlying `.mp4`
+directly - which also makes them seekable, so seeking and pause/resume are
+enabled on on-demand shows (never on the live channels, which have no fixed
+position to seek within). See Troubleshooting for how that was diagnosed. Not yet done: a settings page, now‑playing EPG text, DR
 radio (P1–P8).

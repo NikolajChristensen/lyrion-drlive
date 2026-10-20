@@ -50,7 +50,7 @@ attached to the matching [release](https://github.com/NikolajChristensen/lyrion-
 
 ## Use
 
-1. On a player (or the web UI): `Radio → DR Live → DR2`, press play.
+1. On a player (or the web UI): `My Apps → DR Live → DR2`, press play.
 2. To make a preset: open the context menu on `DR2` (press‑and‑hold / the `+`
    menu) → **Add to Favourites**. The favourite stores `drlive://20876`, so it
    keeps working even when DR rotates the CDN URL.
@@ -94,7 +94,7 @@ API and is out of scope for this plugin.
 
 ## Artwork
 
-The plugin ships its own icon for the `DR Live` entry in the Radio menu, and
+The plugin ships its own icon for the `DR Live` entry in the My Apps menu, and
 uses DR's own channel logos everywhere else — menu rows, Now Playing, and
 Favourites.
 

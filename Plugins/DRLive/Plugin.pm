@@ -79,7 +79,7 @@ sub initPlugin {
 	$class->SUPER::initPlugin(
 		feed   => \&feed,
 		tag    => 'drlive',
-		menu   => 'radios',
+		menu   => 'apps',
 		weight => 55,
 	);
 
